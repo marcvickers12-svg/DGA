@@ -251,6 +251,32 @@ else:
                 st.success("✅ Transformer added!")
                 st.rerun()
 
+            # Delete Site with confirmation
+            with st.expander("🗑️ Delete Site"):
+                st.warning("⚠️ This will permanently delete the site, all transformers, and all associated DGA data.")
+                confirm_site = st.checkbox("Yes, I want to delete this site.")
+                if st.button("Delete Site", type="primary", use_container_width=True):
+                    if confirm_site:
+                        conn = sqlite3.connect(DB_PATH)
+                        c = conn.cursor()
+                        # Delete all DGA results linked to transformers in this site
+                        c.execute("SELECT id FROM transformers WHERE site_id=?", (site_id,))
+                        tx_ids = [row[0] for row in c.fetchall()]
+                        for tx_id in tx_ids:
+                            c.execute("DELETE FROM dga_results WHERE transformer_id=?", (tx_id,))
+                        # Delete transformers
+                        c.execute("DELETE FROM transformers WHERE site_id=?", (site_id,))
+                        # Delete site
+                        c.execute("DELETE FROM sites WHERE id=?", (site_id,))
+                        conn.commit()
+                        conn.close()
+                        st.success(f"✅ Site '{site_row[0]}' and all associated assets deleted.")
+                        st.session_state.page = "fleet"
+                        st.session_state.active_site = None
+                        st.rerun()
+                    else:
+                        st.error("❌ Please check the confirmation box before deleting.")
+
     # -------------------------------
     # ASSET PAGE (Transformer analysis)
     # -------------------------------
@@ -276,6 +302,25 @@ else:
 
             st.title(f"⚡ {t_row[0]}")
             st.caption(f"{t_row[1]}")
+
+            # Delete Asset with confirmation
+            with st.expander("🗑️ Delete Transformer"):
+                st.warning("⚠️ This action will permanently delete this transformer and all its DGA data.")
+                confirm = st.checkbox("Yes, I want to delete this transformer.")
+                if st.button("Delete Transformer", type="primary", use_container_width=True):
+                    if confirm:
+                        conn = sqlite3.connect(DB_PATH)
+                        c = conn.cursor()
+                        c.execute("DELETE FROM dga_results WHERE transformer_id=?", (t_id,))
+                        c.execute("DELETE FROM transformers WHERE id=?", (t_id,))
+                        conn.commit()
+                        conn.close()
+                        st.success(f"✅ Transformer '{t_row[0]}' deleted successfully.")
+                        st.session_state.page = "site"
+                        st.session_state.active_transformer = None
+                        st.rerun()
+                    else:
+                        st.error("❌ Please check the confirmation box before deleting.")
 
             # Upload new DGA data
             st.subheader("📤 Upload New DGA Data")
