@@ -3,8 +3,7 @@ credentials:
     master_user:
       email: master@example.com
       name: Master Account
-      # bcrypt-hashed password for "master123"
-      password: "$2b$12$9wQfEiv5HoOKgxXn.0uXDeZ5Zc0dA4F7tCMq7gl0xjYZvMXLnyIWS"
+      password: "$2b$12$6fvhz8Cy2zXwz.NCM5VX6Og4qjMY0NxxJzUgKcDsbE2tK4CIsgVbq"
 
 cookie:
   expiry_days: 30
