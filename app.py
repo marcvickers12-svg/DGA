@@ -26,7 +26,7 @@ authenticator = stauth.Authenticate(
     config["cookie"]["expiry_days"]
 )
 
-# ✅ Fixed login block (dict return, no unpacking)
+# ✅ Correct login block (dict return, no unpacking)
 login_info = authenticator.login(location="main")
 
 if login_info:
@@ -186,3 +186,4 @@ elif auth_status:
             if st.button("📄 Export Fleet Report (PDF)"):
                 buf = export_fleet_pdf(df_fleet, diag_counts, pd.DataFrame(), fig, fig)
                 st.download_button("Download Fleet Report", buf, file_name="fleet_report.pdf")
+
