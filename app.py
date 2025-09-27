@@ -7,7 +7,7 @@ import os
 
 from database import init_db
 from auth_utils import create_user, authenticate_user
-from analysis import duval, rogers, keygas, trend
+from analysis import duval, rogers, keygas, trend, health
 from utils import plot_gas_trends, plot_duval_triangle, export_transformer_pdf, export_fleet_pdf
 
 # -------------------------------
@@ -154,7 +154,40 @@ else:
         c.execute("SELECT id, name, location FROM sites WHERE user_id=(SELECT id FROM users WHERE username=?)",
                   (st.session_state.username,))
         sites = c.fetchall()
+
+        # Fleet health summary
+        healthy, warning, critical = 0, 0, 0
+        total_transformers = 0
+
+        for site in sites:
+            c.execute("SELECT id FROM transformers WHERE site_id=?", (site[0],))
+            transformers = c.fetchall()
+            for tx in transformers:
+                total_transformers += 1
+                df = pd.read_sql_query("SELECT * FROM dga_results WHERE transformer_id=?", conn, params=(tx[0],))
+                if not df.empty:
+                    h = health.calculate_health(df)
+                    if h["status"] == "Healthy":
+                        healthy += 1
+                    elif h["status"] == "Warning":
+                        warning += 1
+                    elif h["status"] == "Critical":
+                        critical += 1
         conn.close()
+
+        # Display KPIs
+        st.subheader("📊 Fleet Health Summary")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Sites", len(sites))
+        with col2:
+            st.metric("Total Transformers", total_transformers)
+        with col3:
+            st.success(f"🟢 Healthy: {healthy}")
+        with col4:
+            st.warning(f"🟡 {warning}  |  🔴 {critical}")
+
+        st.markdown("---")
 
         if not sites:
             st.warning("No sites registered yet. Create one from sidebar ➕ Register Site")
@@ -365,13 +398,33 @@ else:
                 else:
                     st.warning("⚠️ Not enough CH4, C2H2, C2H4 data for Duval Triangle.")
 
-                st.write("### Analysis Results")
-                st.json({
-                    "Duval": duval.analyze(df),
-                    "Rogers": rogers.analyze(df),
-                    "Key Gas": keygas.analyze(df),
-                    "Trend": trend.analyze(df),
-                })
+                # --- Health Indicator ---
+                st.write("### 🩺 Transformer Health")
+                health_res = health.calculate_health(df)
+                if health_res["status"] == "Healthy":
+                    st.success(f"🟢 Healthy (Score {health_res['score']})")
+                elif health_res["status"] == "Warning":
+                    st.warning(f"🟡 Warning (Score {health_res['score']})")
+                elif health_res["status"] == "Critical":
+                    st.error(f"🔴 Critical (Score {health_res['score']})")
+                else:
+                    st.info("No health data available")
+
+                # --- Analysis Results ---
+                st.write("### 🔬 Diagnostic Analysis")
+                analyses = {
+                    "Duval Triangle": duval.analyze(df),
+                    "Rogers Ratios": rogers.analyze(df),
+                    "Key Gas Method": keygas.analyze(df),
+                    "Trend Analysis": trend.analyze(df),
+                }
+                for method, result in analyses.items():
+                    with st.container():
+                        st.markdown(f"**{method}**")
+                        if isinstance(result, dict):
+                            st.table(pd.DataFrame(result.items(), columns=["Parameter", "Result"]))
+                        else:
+                            st.info(str(result))
 
                 if st.button("📄 Export Transformer Report (PDF)"):
                     buf = export_transformer_pdf(
