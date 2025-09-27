@@ -19,12 +19,12 @@ init_db()
 with open("auth_config.yaml") as f:
     config = yaml.load(f, Loader=SafeLoader)
 
+# ✅ Updated: removed "preauthorized"
 authenticator = stauth.Authenticate(
     config["credentials"],
     config["cookie"]["name"],
     config["cookie"]["key"],
-    config["cookie"]["expiry_days"],
-    config["preauthorized"]
+    config["cookie"]["expiry_days"]
 )
 
 name, auth_status, username = authenticator.login("Login", "main")
@@ -175,6 +175,6 @@ elif auth_status:
 
             # PDF export fleet
             if st.button("📄 Export Fleet Report (PDF)"):
-                from utils import export_fleet_pdf
                 buf = export_fleet_pdf(df_fleet, diag_counts, pd.DataFrame(), fig, fig)
                 st.download_button("Download Fleet Report", buf, file_name="fleet_report.pdf")
+
