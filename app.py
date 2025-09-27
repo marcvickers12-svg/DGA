@@ -21,13 +21,11 @@ st.write("🚀 App started successfully...")
 # -------------------------------
 DB_PATH = "dga_app.db"
 
-# Reset database if schema missing (safety net for blank screens)
 if not os.path.exists(DB_PATH):
     st.warning("⚠️ Database not found. Creating a fresh one...")
     init_db()
 else:
     try:
-        # quick schema check
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         c.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -270,12 +268,17 @@ else:
 
                 st.write("### Gas Trends")
                 fig_trend = plot_gas_trends(df)
-                st.pyplot(fig_trend)
+                if fig_trend:
+                    st.pyplot(fig_trend)
+                else:
+                    st.warning("⚠️ Not enough data for Gas Trends.")
 
                 st.write("### Duval Triangle")
                 fig_duval = plot_duval_triangle(df, date_col="date")
                 if fig_duval:
                     st.plotly_chart(fig_duval, use_container_width=True)
+                else:
+                    st.warning("⚠️ Not enough CH4, C2H2, C2H4 data for Duval Triangle.")
 
                 st.write("### Analysis Results")
                 st.json({
