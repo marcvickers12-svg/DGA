@@ -1,11 +1,13 @@
 import sqlite3
 import bcrypt
 
+DB_PATH = "dga_app.db"
+
 def init_db():
-    conn = sqlite3.connect("dga_app.db")
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    # Users table
+    # ✅ Users table (with username + company fields)
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -17,7 +19,7 @@ def init_db():
         )
     """)
 
-    # Transformers table
+    # ✅ Transformers table
     c.execute("""
         CREATE TABLE IF NOT EXISTS transformers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,7 +30,7 @@ def init_db():
         )
     """)
 
-    # DGA results table
+    # ✅ DGA results table
     c.execute("""
         CREATE TABLE IF NOT EXISTS dga_results (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,4 +54,3 @@ def init_db():
         conn.commit()
 
     conn.close()
-
