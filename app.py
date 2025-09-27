@@ -26,19 +26,19 @@ authenticator = stauth.Authenticate(
     config["cookie"]["expiry_days"]
 )
 
-# ✅ New API: login returns a dict
+# ✅ Corrected login block for latest streamlit-authenticator
 login_info = authenticator.login(location="main")
 
 if login_info:
-    name = login_info["name"]
-    username = login_info["username"]
-    auth_status = login_info["authentication_status"]
+    name = login_info.get("name")
+    username = login_info.get("username")
+    auth_status = login_info.get("authentication_status")
 else:
     name = None
     username = None
     auth_status = None
 
-if auth_status == False:
+if auth_status is False:
     st.error("Username/password is incorrect")
 elif auth_status is None:
     st.warning("Please enter your username and password")
