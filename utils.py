@@ -1,134 +1,139 @@
 import matplotlib.pyplot as plt
 import pandas as pd
+import plotly.express as px
+import sqlite3
 import io
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
-import plotly.graph_objects as go
+from fpdf import FPDF
+from datetime import datetime
+
+from dga.analysis import duval, rogers, keygas, trend
 
 
-# ------------------------------------
-# Gas Trends Plot
-# ------------------------------------
+# -------------------------------
+# Plot Gas Trends
+# -------------------------------
 def plot_gas_trends(df, date_col="date"):
-    """Line plot of dissolved gases over time using Matplotlib"""
-    if df.empty:
-        return None
+    """Generate a line plot of gas concentrations over time."""
+    if date_col in df.columns:
+        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
 
-    gases = ["H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2"]
-
-    plt.figure(figsize=(10, 5))
-    for gas in gases:
-        if gas in df.columns:
-            plt.plot(df[date_col], df[gas], label=gas)
-
-    plt.xlabel("Date")
-    plt.ylabel("Concentration (ppm)")
-    plt.title("DGA Gas Trends")
-    plt.legend()
-    plt.grid(True)
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-
-    return plt.gcf()
-
-
-# ------------------------------------
-# Duval Triangle (Plotly version)
-# ------------------------------------
-def plot_duval_triangle(df, date_col="date"):
-    """
-    Plot Duval Triangle using Plotly instead of python-ternary.
-    Uses gases: CH4, C2H2, C2H4.
-    """
-    if df.empty or not all(col in df.columns for col in ["CH4", "C2H2", "C2H4"]):
-        return None
-
-    # Normalize to 100%
-    df = df.copy()
-    df["sum"] = df["CH4"] + df["C2H2"] + df["C2H4"]
-    df["CH4%"] = df["CH4"] / df["sum"] * 100
-    df["C2H2%"] = df["C2H2"] / df["sum"] * 100
-    df["C2H4%"] = df["C2H4"] / df["sum"] * 100
-
-    # Build ternary scatter plot
-    fig = go.Figure()
-
-    fig.add_trace(go.Scatterternary(
-        a=df["C2H2%"],
-        b=df["C2H4%"],
-        c=df["CH4%"],
-        mode="markers+lines",
-        marker=dict(size=10, color="red", symbol="circle"),
-        text=df[date_col].astype(str).tolist(),
-        hovertemplate="Date: %{text}<br>C2H2=%{a:.1f}%<br>C2H4=%{b:.1f}%<br>CH4=%{c:.1f}%<extra></extra>"
-    ))
-
-    fig.update_layout(
-        title="Duval Triangle (Plotly)",
-        ternary=dict(
-            sum=100,
-            aaxis=dict(title="C2H2 %", min=0, linewidth=2),
-            baxis=dict(title="C2H4 %", min=0, linewidth=2),
-            caxis=dict(title="CH4 %", min=0, linewidth=2)
-        ),
-        margin=dict(l=50, r=50, t=50, b=50)
+    fig = px.line(
+        df,
+        x=date_col,
+        y=["H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2"],
+        markers=True,
+        title="Gas Concentration Trends",
     )
-
     return fig
 
 
-# ------------------------------------
-# Export Transformer PDF Report
-# ------------------------------------
-def export_transformer_pdf(name, df, duval_res, rogers_res, keygas_res, trend_res, duval_fig=None, trend_fig=None):
-    """Generate PDF report for a transformer"""
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer)
-    styles = getSampleStyleSheet()
-    elements = []
+# -------------------------------
+# Plot Duval Triangle (Plotly Approximation)
+# -------------------------------
+def plot_duval_triangle(df, date_col="date"):
+    """Plot a simplified Duval Triangle using plotly scatter ternary."""
+    if df.empty:
+        return None
 
-    elements.append(Paragraph(f"Transformer Report: {name}", styles["Title"]))
-    elements.append(Spacer(1, 12))
+    latest = df.iloc[-1]
+    total = latest["CH4"] + latest["C2H2"] + latest["C2H4"]
+    if total == 0:
+        return None
 
-    elements.append(Paragraph("Latest Gas Data:", styles["Heading2"]))
-    elements.append(Paragraph(df.tail().to_html(index=False), styles["Normal"]))
-    elements.append(Spacer(1, 12))
-
-    elements.append(Paragraph("Analysis Results:", styles["Heading2"]))
-    elements.append(Paragraph(f"Duval: {duval_res}", styles["Normal"]))
-    elements.append(Paragraph(f"Rogers: {rogers_res}", styles["Normal"]))
-    elements.append(Paragraph(f"Key Gas: {keygas_res}", styles["Normal"]))
-    elements.append(Paragraph(f"Trend: {trend_res}", styles["Normal"]))
-
-    doc.build(elements)
-    buffer.seek(0)
-    return buffer
+    fig = px.scatter_ternary(
+        a=[latest["CH4"] / total],
+        b=[latest["C2H2"] / total],
+        c=[latest["C2H4"] / total],
+        title="Duval Triangle (Simplified)",
+    )
+    return fig
 
 
-# ------------------------------------
-# Export Fleet PDF Report
-# ------------------------------------
-def export_fleet_pdf(sites, transformers):
-    """Export fleet-level summary PDF"""
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer)
-    styles = getSampleStyleSheet()
-    elements = []
+# -------------------------------
+# PDF Export - Transformer Report
+# -------------------------------
+def export_transformer_pdf(name, df, duval_res, rogers_res, keygas_res, trend_res, duval_fig, trend_fig):
+    pdf = FPDF()
+    pdf.add_page()
 
-    elements.append(Paragraph("Fleet Report", styles["Title"]))
-    elements.append(Spacer(1, 12))
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(200, 10, f"Transformer Report: {name}", ln=True, align="C")
+
+    pdf.set_font("Arial", size=12)
+    pdf.cell(200, 10, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align="L")
+
+    pdf.ln(10)
+    pdf.cell(200, 10, "Diagnostic Results:", ln=True, align="L")
+
+    def write_dict(title, res):
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(200, 8, f"- {title}", ln=True, align="L")
+        pdf.set_font("Arial", size=11)
+        if isinstance(res, dict):
+            for k, v in res.items():
+                pdf.cell(200, 8, f"   {k}: {v}", ln=True)
+        else:
+            pdf.cell(200, 8, str(res), ln=True)
+
+    write_dict("Duval Triangle", duval_res)
+    write_dict("Rogers Ratios", rogers_res)
+    write_dict("Key Gas Method", keygas_res)
+    write_dict("Trend Analysis", trend_res)
+
+    # Save gas trends chart
+    if trend_fig:
+        buf = io.BytesIO()
+        trend_fig.write_image(buf, format="PNG")
+        buf.seek(0)
+        pdf.image(buf, x=10, y=None, w=180)
+
+    output = io.BytesIO()
+    pdf.output(output)
+    output.seek(0)
+    return output
+
+
+# -------------------------------
+# PDF Export - Fleet Report
+# -------------------------------
+def export_fleet_pdf(sites):
+    pdf = FPDF()
+    pdf.add_page()
+
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(200, 10, f"Fleet Report", ln=True, align="C")
+
+    pdf.set_font("Arial", size=12)
+    pdf.cell(200, 10, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align="L")
+
+    pdf.ln(10)
+    pdf.cell(200, 10, "Sites & Transformers:", ln=True, align="L")
 
     for site in sites:
-        elements.append(Paragraph(f"Site: {site['name']} ({site['location']})", styles["Heading2"]))
-        site_transformers = [t for t in transformers if t["site_id"] == site["id"]]
-        if site_transformers:
-            for tx in site_transformers:
-                elements.append(Paragraph(f"- {tx['name']} ({tx['rating']})", styles["Normal"]))
-        else:
-            elements.append(Paragraph("No transformers yet.", styles["Normal"]))
-        elements.append(Spacer(1, 12))
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(200, 8, f"📍 {site['name']} - {site['location']}", ln=True, align="L")
+        pdf.set_font("Arial", size=11)
+        for tx in site.get("transformers", []):
+            pdf.cell(200, 8, f"   ⚡ {tx['name']} ({tx['rating']})", ln=True)
 
-    doc.build(elements)
-    buffer.seek(0)
-    return buffer
+    output = io.BytesIO()
+    pdf.output(output)
+    output.seek(0)
+    return output
 
+
+# -------------------------------
+# Asset Event Logging
+# -------------------------------
+def log_asset_event(transformer_id, event, details=""):
+    conn = sqlite3.connect("dga_app.db")
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO asset_history (transformer_id, event, details, timestamp)
+        VALUES (?, ?, ?, ?)
+        """,
+        (transformer_id, event, details, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+    )
+    conn.commit()
+    conn.close()
