@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 import sqlite3
 import io
-from fpdf import FPDF
+from fpdf import FPDF  
 from datetime import datetime
 
 from dga.analysis import duval, rogers, keygas, trend
