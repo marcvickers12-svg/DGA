@@ -2,6 +2,7 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 import matplotlib.pyplot as plt
+import io
 
 from database import init_db
 from auth_utils import create_user, authenticate_user
@@ -35,7 +36,7 @@ if not st.session_state.logged_in:
             st.session_state.username = username
             st.session_state.name = name
             st.success(f"✅ Welcome {name}!")
-            st.rerun()   # 🔄 NEW (fix for experimental_rerun)
+            st.rerun()
         else:
             st.error("❌ Invalid username or password")
 
@@ -62,7 +63,7 @@ else:
         st.session_state.logged_in = False
         st.session_state.username = None
         st.session_state.name = None
-        st.rerun()   # 🔄 NEW (fix for experimental_rerun)
+        st.rerun()
 
     # -------------------------------
     # Main App Menu
@@ -93,70 +94,116 @@ else:
 
     elif choice == "Upload DGA Data":
         st.subheader("Upload DGA CSV/Excel")
-        file = st.file_uploader("Upload File", type=["csv", "xlsx"])
-        if file:
-            df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
-            st.write("Preview:", df.head())
 
-            t_id = st.number_input("Transformer ID", min_value=1)
-            if st.button("Save Data"):
-                conn = sqlite3.connect("dga_app.db")
-                df["transformer_id"] = t_id
-                df.to_sql("dga_results", conn, if_exists="append", index=False)
-                conn.close()
-                st.success("Data uploaded!")
+        # Provide a sample CSV download
+        sample_csv = io.StringIO()
+        sample_csv.write("date,H2,CH4,C2H2,C2H4,C2H6,CO,CO2\n")
+        sample_csv.write("2024-01-01,120,35,2,18,50,350,3200\n")
+        sample_csv.write("2024-02-01,130,40,3,20,55,360,3300\n")
+        sample_csv.write("2024-03-01,140,42,4,22,60,370,3400\n")
+        st.download_button("📥 Download Sample CSV", sample_csv.getvalue(),
+                           file_name="sample_dga.csv", mime="text/csv")
+
+        # Select transformer dropdown
+        conn = sqlite3.connect("dga_app.db")
+        c = conn.cursor()
+        c.execute("SELECT id, name FROM transformers WHERE user_id=(SELECT id FROM users WHERE username=?)",
+                  (st.session_state.username,))
+        transformers = c.fetchall()
+        conn.close()
+
+        if transformers:
+            transformer_options = {f"{t[1]} (ID {t[0]})": t[0] for t in transformers}
+            selected_transformer = st.selectbox("Select Transformer", list(transformer_options.keys()))
+            transformer_id = transformer_options[selected_transformer]
+
+            file = st.file_uploader("Upload File", type=["csv", "xlsx"])
+            if file:
+                try:
+                    df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
+
+                    # Validate columns
+                    required_cols = ["date", "H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2"]
+                    if not all(col in df.columns for col in required_cols):
+                        st.error(f"❌ Invalid file format. Required columns: {', '.join(required_cols)}")
+                    else:
+                        st.write("Preview:", df.head())
+                        if st.button("Save Data"):
+                            conn = sqlite3.connect("dga_app.db")
+                            df["transformer_id"] = transformer_id
+                            df.to_sql("dga_results", conn, if_exists="append", index=False)
+                            conn.close()
+                            st.success("✅ Data uploaded successfully!")
+                except Exception as e:
+                    st.error(f"❌ Error reading file: {e}")
+        else:
+            st.warning("No transformers registered yet. Please register one first.")
 
     elif choice == "Analysis":
         st.subheader("Run DGA Analysis")
-        t_id = st.number_input("Transformer ID", min_value=1)
 
+        # Select transformer dropdown
         conn = sqlite3.connect("dga_app.db")
-        df = pd.read_sql_query(f"SELECT * FROM dga_results WHERE transformer_id={t_id}", conn)
+        c = conn.cursor()
+        c.execute("SELECT id, name FROM transformers WHERE user_id=(SELECT id FROM users WHERE username=?)",
+                  (st.session_state.username,))
+        transformers = c.fetchall()
         conn.close()
 
-        if df.empty:
-            st.warning("No data found")
+        if transformers:
+            transformer_options = {f"{t[1]} (ID {t[0]})": t[0] for t in transformers}
+            selected_transformer = st.selectbox("Select Transformer", list(transformer_options.keys()))
+            transformer_id = transformer_options[selected_transformer]
+
+            conn = sqlite3.connect("dga_app.db")
+            df = pd.read_sql_query(f"SELECT * FROM dga_results WHERE transformer_id={transformer_id}", conn)
+            conn.close()
+
+            if df.empty:
+                st.warning("No data found for this transformer.")
+            else:
+                df["date"] = pd.to_datetime(df["date"], errors="coerce")
+                st.write("Latest Data", df.tail())
+
+                st.write("### Gas Trends")
+                fig_trend = plot_gas_trends(df)
+                st.pyplot(fig_trend)
+
+                st.write("### Duval Triangle")
+                fig_duval = plot_duval_triangle(df, date_col="date")
+                if fig_duval:
+                    st.plotly_chart(fig_duval, use_container_width=True)
+
+                st.write("### Duval Analysis")
+                duval_res = duval.analyze(df)
+                st.json(duval_res)
+
+                st.write("### Rogers")
+                rogers_res = rogers.analyze(df)
+                st.json(rogers_res)
+
+                st.write("### Key Gas")
+                keygas_res = keygas.analyze(df)
+                st.json(keygas_res)
+
+                st.write("### Trend")
+                trend_res = trend.analyze(df)
+                st.json(trend_res)
+
+                if st.button("📄 Export Transformer Report (PDF)"):
+                    buf = export_transformer_pdf(
+                        name=f"Transformer {transformer_id}",
+                        df=df,
+                        duval_res=duval_res,
+                        rogers_res=rogers_res,
+                        keygas_res=keygas_res,
+                        trend_res=trend_res,
+                        duval_fig=fig_duval,
+                        trend_fig=fig_trend
+                    )
+                    st.download_button("Download Report", buf, file_name=f"transformer_{transformer_id}_report.pdf")
         else:
-            df["date"] = pd.to_datetime(df["date"], errors="coerce")
-            st.write("Latest Data", df.tail())
-
-            st.write("### Gas Trends")
-            fig_trend = plot_gas_trends(df)
-            st.pyplot(fig_trend)
-
-            st.write("### Duval Triangle")
-            fig_duval = plot_duval_triangle(df, date_col="date")
-            if fig_duval:
-                st.plotly_chart(fig_duval, use_container_width=True)
-
-            st.write("### Duval Analysis")
-            duval_res = duval.analyze(df)
-            st.json(duval_res)
-
-            st.write("### Rogers")
-            rogers_res = rogers.analyze(df)
-            st.json(rogers_res)
-
-            st.write("### Key Gas")
-            keygas_res = keygas.analyze(df)
-            st.json(keygas_res)
-
-            st.write("### Trend")
-            trend_res = trend.analyze(df)
-            st.json(trend_res)
-
-            if st.button("📄 Export Transformer Report (PDF)"):
-                buf = export_transformer_pdf(
-                    name=f"Transformer {t_id}",
-                    df=df,
-                    duval_res=duval_res,
-                    rogers_res=rogers_res,
-                    keygas_res=keygas_res,
-                    trend_res=trend_res,
-                    duval_fig=fig_duval,
-                    trend_fig=fig_trend
-                )
-                st.download_button("Download Report", buf, file_name=f"transformer_{t_id}_report.pdf")
+            st.warning("No transformers registered yet.")
 
     elif choice == "Fleet Dashboard":
         st.title("🏭 Fleet Dashboard")
