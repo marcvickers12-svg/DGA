@@ -5,10 +5,16 @@ import matplotlib.pyplot as plt
 import io
 import os
 
-from database import init_db
-from auth_utils import create_user, authenticate_user
-from analysis import duval, rogers, keygas, trend, health
-from utils import plot_gas_trends, plot_duval_triangle, export_transformer_pdf, export_fleet_pdf, log_asset_event
+from dga.database import init_db
+from dga.auth_utils import create_user, authenticate_user
+from dga.analysis import duval, rogers, keygas, trend, health
+from dga.utils import (
+    plot_gas_trends,
+    plot_duval_triangle,
+    export_transformer_pdf,
+    export_fleet_pdf,
+    log_asset_event
+)
 
 # -------------------------------
 # PAGE CONFIG + BRANDING
