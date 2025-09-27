@@ -1,0 +1,13 @@
+credentials:
+  usernames:
+    master_user:
+      email: master@example.com
+      name: Master Account
+      password: "$2b$12$9wQfEiv5HoOKgxXn.0uXDeZ5Zc0dA4F7tCMq7gl0xjYZvMXLnyIWS"  # bcrypt("master123")
+cookie:
+  expiry_days: 30
+  key: "dga_app_cookie"
+  name: "dga_app_auth"
+preauthorized:
+  emails:
+    - master@example.com
