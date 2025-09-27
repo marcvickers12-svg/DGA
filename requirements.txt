@@ -2,7 +2,7 @@ streamlit
 pandas
 numpy
 matplotlib
-matplotlib-ternary
+plotly
 pyyaml
 streamlit-authenticator
 reportlab
