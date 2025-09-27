@@ -1,66 +1,68 @@
 import streamlit as st
-import streamlit_authenticator as stauth
-import yaml
-from yaml.loader import SafeLoader
 import sqlite3
 import pandas as pd
 import matplotlib.pyplot as plt
 
 from database import init_db
+from auth_utils import create_user, authenticate_user
 from analysis import duval, rogers, keygas, trend
 from utils import plot_gas_trends, plot_duval_triangle, export_transformer_pdf, export_fleet_pdf
 
-# Initialize DB
+# Initialize DB + seed master user
 init_db()
 
 # -------------------------------
-# Authentication
+# Session State for Login
 # -------------------------------
-with open("auth_config.yaml") as f:
-    config = yaml.load(f, Loader=SafeLoader)
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.username = None
+    st.session_state.name = None
 
-authenticator = stauth.Authenticate(
-    config["credentials"],
-    config["cookie"]["name"],
-    config["cookie"]["key"],
-    config["cookie"]["expiry_days"]
-)
+# -------------------------------
+# LOGIN SCREEN
+# -------------------------------
+if not st.session_state.logged_in:
+    st.title("🔐 Login")
 
-# ✅ Correct login block (dict return, no unpacking)
-login_info = authenticator.login(location="main")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
 
-if login_info:
-    name = login_info.get("name")
-    username = login_info.get("username")
-    auth_status = login_info.get("authentication_status")
+    if st.button("Login"):
+        name = authenticate_user(username, password)
+        if name:
+            st.session_state.logged_in = True
+            st.session_state.username = username
+            st.session_state.name = name
+            st.success(f"✅ Welcome {name}!")
+            st.experimental_rerun()
+        else:
+            st.error("❌ Invalid username or password")
+
+    st.markdown("---")
+    st.subheader("👤 Create New Account")
+    new_username = st.text_input("New Username")
+    new_email = st.text_input("New Email")
+    new_name = st.text_input("Full Name")
+    new_password = st.text_input("New Password", type="password")
+    company = st.text_input("Company", value="General")
+
+    if st.button("Create Account"):
+        if create_user(new_username, new_email, new_name, new_password, company):
+            st.success("✅ Account created! You can now log in.")
+        else:
+            st.error("❌ Username already exists")
+
+# -------------------------------
+# MAIN APP (after login)
+# -------------------------------
 else:
-    name = None
-    username = None
-    auth_status = None
-
-# -------------------------------
-# Login feedback
-# -------------------------------
-if auth_status is False:
-    st.error("❌ Login failed! Please check your username and password.")
-    st.markdown(
-        """
-        <div style='padding:10px; border:2px solid red; border-radius:10px; background-color:#ffe6e6;'>
-            <b>Authentication failed:</b><br>
-            - Double-check your username<br>
-            - Make sure CAPS LOCK is off<br>
-            - Try again or reset your password
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-elif auth_status is None:
-    st.info("ℹ️ Please enter your username and password to log in.")
-
-elif auth_status:
-    authenticator.logout("Logout", location="sidebar")
-    st.sidebar.success(f"✅ Welcome {name} 👋")
+    st.sidebar.success(f"Logged in as {st.session_state.name} ({st.session_state.username})")
+    if st.sidebar.button("Logout"):
+        st.session_state.logged_in = False
+        st.session_state.username = None
+        st.session_state.name = None
+        st.experimental_rerun()
 
     # -------------------------------
     # Main App Menu
@@ -70,7 +72,7 @@ elif auth_status:
 
     if choice == "Home":
         st.title("⚡ DGA Analysis App")
-        st.write(f"Logged in as **{name}** ({username})")
+        st.write(f"Logged in as **{st.session_state.name}** ({st.session_state.username})")
 
     elif choice == "Register Transformer":
         st.subheader("Register Transformer")
@@ -78,13 +80,11 @@ elif auth_status:
         location = st.text_input("Location")
         rating = st.text_input("Rating (e.g. 33kV, 40MVA)")
 
-        if st.button("Register"):
+        if st.button("Register Transformer"):
             conn = sqlite3.connect("dga_app.db")
             c = conn.cursor()
-            # Ensure user exists
-            c.execute("INSERT OR IGNORE INTO users (username, company) VALUES (?, ?)", (username, "Company"))
-            conn.commit()
-            user_id = c.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()[0]
+            c.execute("SELECT id FROM users WHERE username=?", (st.session_state.username,))
+            user_id = c.fetchone()[0]
             c.execute("INSERT INTO transformers (user_id, name, location, rating) VALUES (?,?,?,?)",
                       (user_id, name_t, location, rating))
             conn.commit()
@@ -99,7 +99,7 @@ elif auth_status:
             st.write("Preview:", df.head())
 
             t_id = st.number_input("Transformer ID", min_value=1)
-            if st.button("Save"):
+            if st.button("Save Data"):
                 conn = sqlite3.connect("dga_app.db")
                 df["transformer_id"] = t_id
                 df.to_sql("dga_results", conn, if_exists="append", index=False)
@@ -174,7 +174,7 @@ elif auth_status:
         LEFT JOIN dga_results d ON t.id = d.transformer_id AND d.date = latest.latest_date
         WHERE t.user_id = (SELECT id FROM users WHERE username=?)
         """
-        df_fleet = pd.read_sql_query(query, conn, params=(username,))
+        df_fleet = pd.read_sql_query(query, conn, params=(st.session_state.username,))
         conn.close()
 
         if df_fleet.empty:
@@ -197,7 +197,6 @@ elif auth_status:
                 ax.pie(diag_counts, labels=diag_counts.index, autopct="%1.1f%%")
                 st.pyplot(fig)
 
-            # PDF export fleet
             if st.button("📄 Export Fleet Report (PDF)"):
                 buf = export_fleet_pdf(df_fleet, diag_counts, pd.DataFrame(), fig, fig)
                 st.download_button("Download Fleet Report", buf, file_name="fleet_report.pdf")
