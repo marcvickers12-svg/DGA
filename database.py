@@ -1,3 +1,4 @@
+
 import sqlite3
 import bcrypt
 
@@ -7,7 +8,7 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    # ✅ Users table (with username + company fields)
+    # Users table
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -19,18 +20,28 @@ def init_db():
         )
     """)
 
-    # ✅ Transformers table
+    # Sites table
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS sites (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            name TEXT,
+            location TEXT
+        )
+    """)
+
+    # Transformers table (linked to sites)
     c.execute("""
         CREATE TABLE IF NOT EXISTS transformers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
+            site_id INTEGER,
             name TEXT,
             location TEXT,
             rating TEXT
         )
     """)
 
-    # ✅ DGA results table
+    # DGA results table
     c.execute("""
         CREATE TABLE IF NOT EXISTS dga_results (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,7 +54,7 @@ def init_db():
 
     conn.commit()
 
-    # ✅ Seed a master admin if not exists
+    # Seed master user
     c.execute("SELECT * FROM users WHERE username=?", ("master_user",))
     if not c.fetchone():
         hashed_pw = bcrypt.hashpw("master123".encode(), bcrypt.gensalt()).decode()
