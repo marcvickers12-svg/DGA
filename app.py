@@ -13,12 +13,15 @@ from utils import plot_gas_trends, plot_duval_triangle, export_transformer_pdf, 
 init_db()
 
 # -------------------------------
-# Session State for Login
+# Session State
 # -------------------------------
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = None
     st.session_state.name = None
+
+if "page" not in st.session_state:
+    st.session_state.page = "Home"
 
 # -------------------------------
 # LOGIN SCREEN
@@ -58,24 +61,35 @@ if not st.session_state.logged_in:
 # MAIN APP (after login)
 # -------------------------------
 else:
-    st.sidebar.success(f"Logged in as {st.session_state.name} ({st.session_state.username})")
-    if st.sidebar.button("Logout"):
-        st.session_state.logged_in = False
-        st.session_state.username = None
-        st.session_state.name = None
-        st.rerun()
+    with st.sidebar:
+        st.success(f"Logged in as {st.session_state.name} ({st.session_state.username})")
+        if st.button("Logout"):
+            st.session_state.logged_in = False
+            st.session_state.username = None
+            st.session_state.name = None
+            st.session_state.page = "Home"
+            st.rerun()
+
+        st.title("📋 Menu")
+        if st.button("🏠 Home"):
+            st.session_state.page = "Home"
+        if st.button("🏭 Fleet Dashboard"):
+            st.session_state.page = "Fleet Dashboard"
+        if st.button("⚡ Register Transformer"):
+            st.session_state.page = "Register Transformer"
+        if st.button("📤 Upload DGA Data"):
+            st.session_state.page = "Upload DGA Data"
+        if st.button("🔍 Analysis"):
+            st.session_state.page = "Analysis"
 
     # -------------------------------
-    # Main App Menu
+    # Page Routing
     # -------------------------------
-    menu = ["Home", "Fleet Dashboard", "Register Transformer", "Upload DGA Data", "Analysis"]
-    choice = st.sidebar.selectbox("Menu", menu)
-
-    if choice == "Home":
+    if st.session_state.page == "Home":
         st.title("⚡ DGA Analysis App")
         st.write(f"Logged in as **{st.session_state.name}** ({st.session_state.username})")
 
-    elif choice == "Register Transformer":
+    elif st.session_state.page == "Register Transformer":
         st.subheader("Register Transformer")
         name_t = st.text_input("Transformer Name")
         location = st.text_input("Location")
@@ -92,7 +106,7 @@ else:
             conn.close()
             st.success("Transformer registered!")
 
-    elif choice == "Upload DGA Data":
+    elif st.session_state.page == "Upload DGA Data":
         st.subheader("Upload DGA CSV/Excel")
 
         # Provide a sample CSV download
@@ -139,7 +153,7 @@ else:
         else:
             st.warning("No transformers registered yet. Please register one first.")
 
-    elif choice == "Analysis":
+    elif st.session_state.page == "Analysis":
         st.subheader("Run DGA Analysis")
 
         # Select transformer dropdown
@@ -205,7 +219,7 @@ else:
         else:
             st.warning("No transformers registered yet.")
 
-    elif choice == "Fleet Dashboard":
+    elif st.session_state.page == "Fleet Dashboard":
         st.title("🏭 Fleet Dashboard")
 
         conn = sqlite3.connect("dga_app.db")
@@ -231,7 +245,6 @@ else:
             st.dataframe(df_fleet)
 
             # Fault Distribution
-            from analysis import duval
             diagnoses = []
             for _, row in df_fleet.iterrows():
                 if pd.notnull(row["C2H2"]):
