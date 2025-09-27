@@ -26,7 +26,7 @@ authenticator = stauth.Authenticate(
     config["cookie"]["expiry_days"]
 )
 
-# ✅ Corrected login block for latest streamlit-authenticator
+# ✅ Fixed login block (dict return, no unpacking)
 login_info = authenticator.login(location="main")
 
 if login_info:
