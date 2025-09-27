@@ -9,7 +9,7 @@ from auth_utils import create_user, authenticate_user
 from analysis import duval, rogers, keygas, trend
 from utils import plot_gas_trends, plot_duval_triangle, export_transformer_pdf, export_fleet_pdf
 
-# Initialize DB + seed master user
+# Initialize DB
 init_db()
 
 # -------------------------------
@@ -21,7 +21,10 @@ if "logged_in" not in st.session_state:
     st.session_state.name = None
 
 if "page" not in st.session_state:
-    st.session_state.page = "Home"
+    st.session_state.page = "fleet"  # default = fleet dashboard
+
+if "active_transformer" not in st.session_state:
+    st.session_state.active_transformer = None
 
 # -------------------------------
 # LOGIN SCREEN
@@ -62,164 +65,29 @@ if not st.session_state.logged_in:
 # -------------------------------
 else:
     with st.sidebar:
-        st.success(f"Logged in as {st.session_state.name} ({st.session_state.username})")
+        st.success(f"Logged in as {st.session_state.name}")
         if st.button("Logout"):
             st.session_state.logged_in = False
             st.session_state.username = None
             st.session_state.name = None
-            st.session_state.page = "Home"
+            st.session_state.page = "fleet"
+            st.session_state.active_transformer = None
             st.rerun()
 
-        st.title("📋 Menu")
-        if st.button("🏠 Home"):
-            st.session_state.page = "Home"
+        st.title("📋 Navigation")
         if st.button("🏭 Fleet Dashboard"):
-            st.session_state.page = "Fleet Dashboard"
-        if st.button("⚡ Register Transformer"):
-            st.session_state.page = "Register Transformer"
-        if st.button("📤 Upload DGA Data"):
-            st.session_state.page = "Upload DGA Data"
-        if st.button("🔍 Analysis"):
-            st.session_state.page = "Analysis"
+            st.session_state.page = "fleet"
+            st.session_state.active_transformer = None
+            st.rerun()
+        if st.button("➕ Register Asset"):
+            st.session_state.page = "register"
+            st.session_state.active_transformer = None
+            st.rerun()
 
     # -------------------------------
-    # Page Routing
+    # FLEET DASHBOARD
     # -------------------------------
-    if st.session_state.page == "Home":
-        st.title("⚡ DGA Analysis App")
-        st.write(f"Logged in as **{st.session_state.name}** ({st.session_state.username})")
-
-    elif st.session_state.page == "Register Transformer":
-        st.subheader("Register Transformer")
-        name_t = st.text_input("Transformer Name")
-        location = st.text_input("Location")
-        rating = st.text_input("Rating (e.g. 33kV, 40MVA)")
-
-        if st.button("Register Transformer"):
-            conn = sqlite3.connect("dga_app.db")
-            c = conn.cursor()
-            c.execute("SELECT id FROM users WHERE username=?", (st.session_state.username,))
-            user_id = c.fetchone()[0]
-            c.execute("INSERT INTO transformers (user_id, name, location, rating) VALUES (?,?,?,?)",
-                      (user_id, name_t, location, rating))
-            conn.commit()
-            conn.close()
-            st.success("Transformer registered!")
-
-    elif st.session_state.page == "Upload DGA Data":
-        st.subheader("Upload DGA CSV/Excel")
-
-        # Provide a sample CSV download
-        sample_csv = io.StringIO()
-        sample_csv.write("date,H2,CH4,C2H2,C2H4,C2H6,CO,CO2\n")
-        sample_csv.write("2024-01-01,120,35,2,18,50,350,3200\n")
-        sample_csv.write("2024-02-01,130,40,3,20,55,360,3300\n")
-        sample_csv.write("2024-03-01,140,42,4,22,60,370,3400\n")
-        st.download_button("📥 Download Sample CSV", sample_csv.getvalue(),
-                           file_name="sample_dga.csv", mime="text/csv")
-
-        # Select transformer dropdown
-        conn = sqlite3.connect("dga_app.db")
-        c = conn.cursor()
-        c.execute("SELECT id, name FROM transformers WHERE user_id=(SELECT id FROM users WHERE username=?)",
-                  (st.session_state.username,))
-        transformers = c.fetchall()
-        conn.close()
-
-        if transformers:
-            transformer_options = {f"{t[1]} (ID {t[0]})": t[0] for t in transformers}
-            selected_transformer = st.selectbox("Select Transformer", list(transformer_options.keys()))
-            transformer_id = transformer_options[selected_transformer]
-
-            file = st.file_uploader("Upload File", type=["csv", "xlsx"])
-            if file:
-                try:
-                    df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
-
-                    # Validate columns
-                    required_cols = ["date", "H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2"]
-                    if not all(col in df.columns for col in required_cols):
-                        st.error(f"❌ Invalid file format. Required columns: {', '.join(required_cols)}")
-                    else:
-                        st.write("Preview:", df.head())
-                        if st.button("Save Data"):
-                            conn = sqlite3.connect("dga_app.db")
-                            df["transformer_id"] = transformer_id
-                            df.to_sql("dga_results", conn, if_exists="append", index=False)
-                            conn.close()
-                            st.success("✅ Data uploaded successfully!")
-                except Exception as e:
-                    st.error(f"❌ Error reading file: {e}")
-        else:
-            st.warning("No transformers registered yet. Please register one first.")
-
-    elif st.session_state.page == "Analysis":
-        st.subheader("Run DGA Analysis")
-
-        # Select transformer dropdown
-        conn = sqlite3.connect("dga_app.db")
-        c = conn.cursor()
-        c.execute("SELECT id, name FROM transformers WHERE user_id=(SELECT id FROM users WHERE username=?)",
-                  (st.session_state.username,))
-        transformers = c.fetchall()
-        conn.close()
-
-        if transformers:
-            transformer_options = {f"{t[1]} (ID {t[0]})": t[0] for t in transformers}
-            selected_transformer = st.selectbox("Select Transformer", list(transformer_options.keys()))
-            transformer_id = transformer_options[selected_transformer]
-
-            conn = sqlite3.connect("dga_app.db")
-            df = pd.read_sql_query(f"SELECT * FROM dga_results WHERE transformer_id={transformer_id}", conn)
-            conn.close()
-
-            if df.empty:
-                st.warning("No data found for this transformer.")
-            else:
-                df["date"] = pd.to_datetime(df["date"], errors="coerce")
-                st.write("Latest Data", df.tail())
-
-                st.write("### Gas Trends")
-                fig_trend = plot_gas_trends(df)
-                st.pyplot(fig_trend)
-
-                st.write("### Duval Triangle")
-                fig_duval = plot_duval_triangle(df, date_col="date")
-                if fig_duval:
-                    st.plotly_chart(fig_duval, use_container_width=True)
-
-                st.write("### Duval Analysis")
-                duval_res = duval.analyze(df)
-                st.json(duval_res)
-
-                st.write("### Rogers")
-                rogers_res = rogers.analyze(df)
-                st.json(rogers_res)
-
-                st.write("### Key Gas")
-                keygas_res = keygas.analyze(df)
-                st.json(keygas_res)
-
-                st.write("### Trend")
-                trend_res = trend.analyze(df)
-                st.json(trend_res)
-
-                if st.button("📄 Export Transformer Report (PDF)"):
-                    buf = export_transformer_pdf(
-                        name=f"Transformer {transformer_id}",
-                        df=df,
-                        duval_res=duval_res,
-                        rogers_res=rogers_res,
-                        keygas_res=keygas_res,
-                        trend_res=trend_res,
-                        duval_fig=fig_duval,
-                        trend_fig=fig_trend
-                    )
-                    st.download_button("Download Report", buf, file_name=f"transformer_{transformer_id}_report.pdf")
-        else:
-            st.warning("No transformers registered yet.")
-
-    elif st.session_state.page == "Fleet Dashboard":
+    if st.session_state.page == "fleet":
         st.title("🏭 Fleet Dashboard")
 
         conn = sqlite3.connect("dga_app.db")
@@ -241,22 +109,119 @@ else:
         if df_fleet.empty:
             st.warning("No transformers registered yet.")
         else:
-            st.subheader("Transformer Overview")
-            st.dataframe(df_fleet)
-
-            # Fault Distribution
-            diagnoses = []
+            st.subheader("Your Transformers")
             for _, row in df_fleet.iterrows():
-                if pd.notnull(row["C2H2"]):
-                    temp_df = pd.DataFrame([row])
-                    res = duval.analyze(temp_df)
-                    diagnoses.append(res["Duval"])
-            if diagnoses:
-                diag_counts = pd.Series(diagnoses).value_counts()
-                fig, ax = plt.subplots()
-                ax.pie(diag_counts, labels=diag_counts.index, autopct="%1.1f%%")
-                st.pyplot(fig)
+                col1, col2, col3 = st.columns([2, 2, 1])
+                with col1:
+                    st.write(f"**{row['name']}** ({row['rating']})")
+                    st.caption(f"{row['location']}")
+                with col2:
+                    st.write("Last Sample:", row["date"] if row["date"] else "No Data")
+                with col3:
+                    if st.button(f"View ➡️", key=f"view_{row['transformer_id']}"):
+                        st.session_state.page = "asset"
+                        st.session_state.active_transformer = row["transformer_id"]
+                        st.rerun()
 
-            if st.button("📄 Export Fleet Report (PDF)"):
-                buf = export_fleet_pdf(df_fleet, diag_counts, pd.DataFrame(), fig, fig)
-                st.download_button("Download Fleet Report", buf, file_name="fleet_report.pdf")
+    # -------------------------------
+    # REGISTER ASSET
+    # -------------------------------
+    elif st.session_state.page == "register":
+        st.title("➕ Register New Transformer")
+
+        name_t = st.text_input("Transformer Name")
+        location = st.text_input("Location")
+        rating = st.text_input("Rating (e.g. 33kV, 40MVA)")
+
+        if st.button("Register Transformer"):
+            conn = sqlite3.connect("dga_app.db")
+            c = conn.cursor()
+            c.execute("SELECT id FROM users WHERE username=?", (st.session_state.username,))
+            user_id = c.fetchone()[0]
+            c.execute("INSERT INTO transformers (user_id, name, location, rating) VALUES (?,?,?,?)",
+                      (user_id, name_t, location, rating))
+            conn.commit()
+            conn.close()
+            st.success("✅ Transformer registered!")
+            st.session_state.page = "fleet"
+            st.rerun()
+
+    # -------------------------------
+    # ASSET PAGE
+    # -------------------------------
+    elif st.session_state.page == "asset" and st.session_state.active_transformer:
+        t_id = st.session_state.active_transformer
+
+        # Fetch transformer details
+        conn = sqlite3.connect("dga_app.db")
+        c = conn.cursor()
+        c.execute("SELECT name, location, rating FROM transformers WHERE id=?", (t_id,))
+        t_row = c.fetchone()
+        df = pd.read_sql_query("SELECT * FROM dga_results WHERE transformer_id=?", conn, params=(t_id,))
+        conn.close()
+
+        if not t_row:
+            st.error("❌ Transformer not found")
+        else:
+            st.title(f"⚡ {t_row[0]}")
+            st.caption(f"{t_row[1]} • {t_row[2]}")
+
+            # Upload new DGA data
+            st.subheader("📤 Upload New DGA Data")
+            sample_csv = io.StringIO()
+            sample_csv.write("date,H2,CH4,C2H2,C2H4,C2H6,CO,CO2\n")
+            sample_csv.write("2024-01-01,120,35,2,18,50,350,3200\n")
+            sample_csv.write("2024-02-01,130,40,3,20,55,360,3300\n")
+            st.download_button("📥 Download Sample CSV", sample_csv.getvalue(),
+                               file_name="sample_dga.csv", mime="text/csv")
+
+            file = st.file_uploader("Upload File", type=["csv", "xlsx"])
+            if file:
+                df_new = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
+                required_cols = ["date", "H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2"]
+                if not all(col in df_new.columns for col in required_cols):
+                    st.error(f"❌ Invalid file format. Required: {', '.join(required_cols)}")
+                else:
+                    if st.button("Save Data"):
+                        conn = sqlite3.connect("dga_app.db")
+                        df_new["transformer_id"] = t_id
+                        df_new.to_sql("dga_results", conn, if_exists="append", index=False)
+                        conn.close()
+                        st.success("✅ Data uploaded!")
+                        st.rerun()
+
+            # Show analysis if data exists
+            if not df.empty:
+                df["date"] = pd.to_datetime(df["date"], errors="coerce")
+                st.subheader("📊 Latest Data")
+                st.dataframe(df.tail())
+
+                st.write("### Gas Trends")
+                fig_trend = plot_gas_trends(df)
+                st.pyplot(fig_trend)
+
+                st.write("### Duval Triangle")
+                fig_duval = plot_duval_triangle(df, date_col="date")
+                if fig_duval:
+                    st.plotly_chart(fig_duval, use_container_width=True)
+
+                st.write("### Analysis Results")
+                st.json({
+                    "Duval": duval.analyze(df),
+                    "Rogers": rogers.analyze(df),
+                    "Key Gas": keygas.analyze(df),
+                    "Trend": trend.analyze(df),
+                })
+
+                if st.button("📄 Export Transformer Report (PDF)"):
+                    buf = export_transformer_pdf(
+                        name=f"{t_row[0]}",
+                        df=df,
+                        duval_res=duval.analyze(df),
+                        rogers_res=rogers.analyze(df),
+                        keygas_res=keygas.analyze(df),
+                        trend_res=trend.analyze(df),
+                        duval_fig=fig_duval,
+                        trend_fig=fig_trend
+                    )
+                    st.download_button("Download Report", buf, file_name=f"{t_row[0]}_report.pdf")
