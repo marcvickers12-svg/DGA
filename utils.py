@@ -1,9 +1,10 @@
 import matplotlib.pyplot as plt
-import ternary
+import plotly.express as px
 import io
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
+
 
 DUVAL_ZONES = {
     "PD": [(0,100,0),(0,90,10),(10,90,0)],
