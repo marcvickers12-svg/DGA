@@ -1,9 +1,7 @@
-streamlit
+streamlit==1.50.0
+bcrypt
 pandas
-numpy
 matplotlib
 plotly
-pyyaml
-streamlit-authenticator
-reportlab
-bcrypt
+fpdf2
+openpyxl
