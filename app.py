@@ -27,8 +27,8 @@ authenticator = stauth.Authenticate(
     config["cookie"]["expiry_days"]
 )
 
-# ✅ Updated: use keyword for location
-name, auth_status, username = authenticator.login("Login", location="main")
+# ✅ Updated: new API (no "Login" label, only location)
+name, auth_status, username = authenticator.login(location="main")
 
 if auth_status == False:
     st.error("Username/password is incorrect")
