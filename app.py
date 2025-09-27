@@ -19,7 +19,6 @@ init_db()
 with open("auth_config.yaml") as f:
     config = yaml.load(f, Loader=SafeLoader)
 
-# ✅ Updated: removed deprecated "preauthorized"
 authenticator = stauth.Authenticate(
     config["credentials"],
     config["cookie"]["name"],
@@ -27,12 +26,21 @@ authenticator = stauth.Authenticate(
     config["cookie"]["expiry_days"]
 )
 
-# ✅ Updated: new API (no "Login" label, only location)
-name, auth_status, username = authenticator.login(location="main")
+# ✅ New API: login returns a dict
+login_info = authenticator.login(location="main")
+
+if login_info:
+    name = login_info["name"]
+    username = login_info["username"]
+    auth_status = login_info["authentication_status"]
+else:
+    name = None
+    username = None
+    auth_status = None
 
 if auth_status == False:
     st.error("Username/password is incorrect")
-elif auth_status == None:
+elif auth_status is None:
     st.warning("Please enter your username and password")
 elif auth_status:
 
