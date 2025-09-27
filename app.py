@@ -35,7 +35,7 @@ if not st.session_state.logged_in:
             st.session_state.username = username
             st.session_state.name = name
             st.success(f"✅ Welcome {name}!")
-            st.experimental_rerun()
+            st.rerun()   # 🔄 NEW (fix for experimental_rerun)
         else:
             st.error("❌ Invalid username or password")
 
@@ -62,7 +62,7 @@ else:
         st.session_state.logged_in = False
         st.session_state.username = None
         st.session_state.name = None
-        st.experimental_rerun()
+        st.rerun()   # 🔄 NEW (fix for experimental_rerun)
 
     # -------------------------------
     # Main App Menu
