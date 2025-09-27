@@ -143,7 +143,83 @@ else:
             st.rerun()
 
     # -------------------------------
-    # ASSET PAGE (Transformer analysis + history + alarms)
+    # FLEET DASHBOARD
+    # -------------------------------
+    if st.session_state.page == "fleet":
+        render_breadcrumbs()
+        st.title("🏭 Fleet Dashboard")
+
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT id, name, location FROM sites WHERE user_id=(SELECT id FROM users WHERE username=?)",
+                  (st.session_state.username,))
+        sites = c.fetchall()
+
+        # Fleet KPIs
+        healthy, warning, critical = 0, 0, 0
+        total_transformers = 0
+        for site in sites:
+            c.execute("SELECT id FROM transformers WHERE site_id=?", (site[0],))
+            transformers = c.fetchall()
+            for tx in transformers:
+                total_transformers += 1
+                df = pd.read_sql_query("SELECT * FROM dga_results WHERE transformer_id=?", conn, params=(tx[0],))
+                if not df.empty:
+                    h = health.calculate_health(df)
+                    if h["status"] == "Healthy":
+                        healthy += 1
+                    elif h["status"] == "Warning":
+                        warning += 1
+                    elif h["status"] == "Critical":
+                        critical += 1
+        conn.close()
+
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total Sites", len(sites))
+        col2.metric("Total Transformers", total_transformers)
+        col3.success(f"🟢 {healthy} Healthy")
+        col4.warning(f"🟡 {warning}  |  🔴 {critical}")
+
+        if not sites:
+            st.info("No sites registered yet.")
+        else:
+            for site in sites:
+                if st.button(f"📍 {site[1]} ({site[2]})", key=f"site_{site[0]}"):
+                    st.session_state.page = "site"
+                    st.session_state.active_site = site[0]
+                    st.rerun()
+
+    # -------------------------------
+    # SITE PAGE
+    # -------------------------------
+    elif st.session_state.page == "site" and st.session_state.active_site:
+        render_breadcrumbs()
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT name, location FROM sites WHERE id=?", (st.session_state.active_site,))
+        site_row = c.fetchone()
+
+        if not site_row:
+            st.error("❌ Site not found")
+        else:
+            st.title(f"📍 {site_row[0]}")
+            st.caption(f"Location: {site_row[1]}")
+
+            c.execute("SELECT id, name, rating FROM transformers WHERE site_id=?", (st.session_state.active_site,))
+            transformers = c.fetchall()
+            conn.close()
+
+            if not transformers:
+                st.info("No transformers registered at this site.")
+            else:
+                for tx in transformers:
+                    if st.button(f"⚡ {tx[1]} ({tx[2]})", key=f"tx_{tx[0]}"):
+                        st.session_state.page = "asset"
+                        st.session_state.active_transformer = tx[0]
+                        st.rerun()
+
+    # -------------------------------
+    # ASSET PAGE
     # -------------------------------
     elif st.session_state.page == "asset" and st.session_state.active_transformer:
         render_breadcrumbs()
@@ -223,7 +299,6 @@ else:
                         st.markdown(f"**{method}**")
                         if isinstance(result, dict):
                             st.table(pd.DataFrame(result.items(), columns=["Parameter", "Result"]))
-                            # Alarm logging if critical
                             if "fault" in str(result).lower():
                                 log_asset_event(t_id, f"Alarm: {method}", str(result))
                         else:
