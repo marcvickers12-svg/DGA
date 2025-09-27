@@ -8,7 +8,7 @@ import os
 from database import init_db
 from auth_utils import create_user, authenticate_user
 from analysis import duval, rogers, keygas, trend, health
-from utils import plot_gas_trends, plot_duval_triangle, export_transformer_pdf, export_fleet_pdf
+from utils import plot_gas_trends, plot_duval_triangle, export_transformer_pdf, export_fleet_pdf, log_asset_event
 
 # -------------------------------
 # PAGE CONFIG + BRANDING
@@ -143,175 +143,7 @@ else:
             st.rerun()
 
     # -------------------------------
-    # FLEET DASHBOARD (Sites)
-    # -------------------------------
-    if st.session_state.page == "fleet":
-        render_breadcrumbs()
-        st.title("🏭 Fleet Dashboard")
-
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute("SELECT id, name, location FROM sites WHERE user_id=(SELECT id FROM users WHERE username=?)",
-                  (st.session_state.username,))
-        sites = c.fetchall()
-
-        # Fleet health summary
-        healthy, warning, critical = 0, 0, 0
-        total_transformers = 0
-
-        for site in sites:
-            c.execute("SELECT id FROM transformers WHERE site_id=?", (site[0],))
-            transformers = c.fetchall()
-            for tx in transformers:
-                total_transformers += 1
-                df = pd.read_sql_query("SELECT * FROM dga_results WHERE transformer_id=?", conn, params=(tx[0],))
-                if not df.empty:
-                    h = health.calculate_health(df)
-                    if h["status"] == "Healthy":
-                        healthy += 1
-                    elif h["status"] == "Warning":
-                        warning += 1
-                    elif h["status"] == "Critical":
-                        critical += 1
-        conn.close()
-
-        # Display KPIs
-        st.subheader("📊 Fleet Health Summary")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Sites", len(sites))
-        with col2:
-            st.metric("Total Transformers", total_transformers)
-        with col3:
-            st.success(f"🟢 Healthy: {healthy}")
-        with col4:
-            st.warning(f"🟡 {warning}  |  🔴 {critical}")
-
-        st.markdown("---")
-
-        if not sites:
-            st.warning("No sites registered yet. Create one from sidebar ➕ Register Site")
-        else:
-            for s in sites:
-                col1, col2, col3 = st.columns([3, 3, 1])
-                with col1:
-                    st.write(f"**{s[1]}**")
-                    st.caption(f"{s[2]}")
-                with col2:
-                    st.write("Assets: click view")
-                with col3:
-                    if st.button("View ➡️", key=f"site_{s[0]}"):
-                        st.session_state.page = "site"
-                        st.session_state.active_site = s[0]
-                        st.rerun()
-
-    # -------------------------------
-    # REGISTER SITE
-    # -------------------------------
-    elif st.session_state.page == "register_site":
-        render_breadcrumbs()
-        st.title("➕ Register New Site")
-
-        name_s = st.text_input("Site Name")
-        location = st.text_input("Location")
-
-        if st.button("Create Site"):
-            conn = sqlite3.connect(DB_PATH)
-            c = conn.cursor()
-            c.execute("SELECT id FROM users WHERE username=?", (st.session_state.username,))
-            user_id = c.fetchone()[0]
-            c.execute("INSERT INTO sites (user_id, name, location) VALUES (?,?,?)",
-                      (user_id, name_s, location))
-            conn.commit()
-            conn.close()
-            st.success("✅ Site registered!")
-            st.session_state.page = "fleet"
-            st.rerun()
-
-    # -------------------------------
-    # SITE PAGE (Transformers list)
-    # -------------------------------
-    elif st.session_state.page == "site" and st.session_state.active_site:
-        render_breadcrumbs()
-        site_id = st.session_state.active_site
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute("SELECT name, location FROM sites WHERE id=?", (site_id,))
-        site_row = c.fetchone()
-
-        c.execute("SELECT id, name, rating FROM transformers WHERE site_id=?", (site_id,))
-        transformers = c.fetchall()
-        conn.close()
-
-        if not site_row:
-            st.error("❌ Site not found")
-        else:
-            if st.button("⬅️ Back to Fleet Dashboard"):
-                st.session_state.page = "fleet"
-                st.session_state.active_site = None
-                st.rerun()
-
-            st.title(f"📍 {site_row[0]}")
-            st.caption(site_row[1])
-
-            if not transformers:
-                st.info("No transformers yet. Add one below.")
-            else:
-                for t in transformers:
-                    col1, col2, col3 = st.columns([3, 2, 1])
-                    with col1:
-                        st.write(f"**{t[1]}**")
-                        st.caption(f"{t[2]}")
-                    with col2:
-                        st.write("Latest data available")
-                    with col3:
-                        if st.button("View ➡️", key=f"tx_{t[0]}"):
-                            st.session_state.page = "asset"
-                            st.session_state.active_transformer = t[0]
-                            st.rerun()
-
-            st.markdown("---")
-            st.subheader("➕ Add Transformer")
-            name_t = st.text_input("Transformer Name")
-            rating_t = st.text_input("Rating (e.g. 33kV, 40MVA)")
-            if st.button("Add Transformer"):
-                conn = sqlite3.connect(DB_PATH)
-                c = conn.cursor()
-                c.execute("INSERT INTO transformers (site_id, name, rating) VALUES (?,?,?)",
-                          (site_id, name_t, rating_t))
-                conn.commit()
-                conn.close()
-                st.success("✅ Transformer added!")
-                st.rerun()
-
-            # Delete Site with confirmation
-            with st.expander("🗑️ Delete Site"):
-                st.warning("⚠️ This will permanently delete the site, all transformers, and all associated DGA data.")
-                confirm_site = st.checkbox("Yes, I want to delete this site.")
-                if st.button("Delete Site", type="primary", use_container_width=True):
-                    if confirm_site:
-                        conn = sqlite3.connect(DB_PATH)
-                        c = conn.cursor()
-                        # Delete all DGA results linked to transformers in this site
-                        c.execute("SELECT id FROM transformers WHERE site_id=?", (site_id,))
-                        tx_ids = [row[0] for row in c.fetchall()]
-                        for tx_id in tx_ids:
-                            c.execute("DELETE FROM dga_results WHERE transformer_id=?", (tx_id,))
-                        # Delete transformers
-                        c.execute("DELETE FROM transformers WHERE site_id=?", (site_id,))
-                        # Delete site
-                        c.execute("DELETE FROM sites WHERE id=?", (site_id,))
-                        conn.commit()
-                        conn.close()
-                        st.success(f"✅ Site '{site_row[0]}' and all associated assets deleted.")
-                        st.session_state.page = "fleet"
-                        st.session_state.active_site = None
-                        st.rerun()
-                    else:
-                        st.error("❌ Please check the confirmation box before deleting.")
-
-    # -------------------------------
-    # ASSET PAGE (Transformer analysis)
+    # ASSET PAGE (Transformer analysis + history + alarms)
     # -------------------------------
     elif st.session_state.page == "asset" and st.session_state.active_transformer:
         render_breadcrumbs()
@@ -330,30 +162,11 @@ else:
             if st.button("⬅️ Back to Site"):
                 st.session_state.page = "site"
                 st.session_state.active_transformer = None
-                st.session_state.active_site = t_row[2]  # site_id
+                st.session_state.active_site = t_row[2]
                 st.rerun()
 
             st.title(f"⚡ {t_row[0]}")
             st.caption(f"{t_row[1]}")
-
-            # Delete Asset with confirmation
-            with st.expander("🗑️ Delete Transformer"):
-                st.warning("⚠️ This action will permanently delete this transformer and all its DGA data.")
-                confirm = st.checkbox("Yes, I want to delete this transformer.")
-                if st.button("Delete Transformer", type="primary", use_container_width=True):
-                    if confirm:
-                        conn = sqlite3.connect(DB_PATH)
-                        c = conn.cursor()
-                        c.execute("DELETE FROM dga_results WHERE transformer_id=?", (t_id,))
-                        c.execute("DELETE FROM transformers WHERE id=?", (t_id,))
-                        conn.commit()
-                        conn.close()
-                        st.success(f"✅ Transformer '{t_row[0]}' deleted successfully.")
-                        st.session_state.page = "site"
-                        st.session_state.active_transformer = None
-                        st.rerun()
-                    else:
-                        st.error("❌ Please check the confirmation box before deleting.")
 
             # Upload new DGA data
             st.subheader("📤 Upload New DGA Data")
@@ -375,6 +188,7 @@ else:
                         df_new["transformer_id"] = t_id
                         df_new.to_sql("dga_results", conn, if_exists="append", index=False)
                         conn.close()
+                        log_asset_event(t_id, "DGA Data Uploaded", f"{len(df_new)} new records added")
                         st.success("✅ Data uploaded!")
                         st.rerun()
 
@@ -384,20 +198,6 @@ else:
                 st.subheader("📊 Latest Data")
                 st.dataframe(df.tail())
 
-                st.write("### Gas Trends")
-                fig_trend = plot_gas_trends(df)
-                if fig_trend:
-                    st.pyplot(fig_trend)
-                else:
-                    st.warning("⚠️ Not enough data for Gas Trends.")
-
-                st.write("### Duval Triangle")
-                fig_duval = plot_duval_triangle(df, date_col="date")
-                if fig_duval:
-                    st.plotly_chart(fig_duval, use_container_width=True)
-                else:
-                    st.warning("⚠️ Not enough CH4, C2H2, C2H4 data for Duval Triangle.")
-
                 # --- Health Indicator ---
                 st.write("### 🩺 Transformer Health")
                 health_res = health.calculate_health(df)
@@ -405,10 +205,10 @@ else:
                     st.success(f"🟢 Healthy (Score {health_res['score']})")
                 elif health_res["status"] == "Warning":
                     st.warning(f"🟡 Warning (Score {health_res['score']})")
+                    log_asset_event(t_id, "Alarm: Health Warning", f"Score {health_res['score']}")
                 elif health_res["status"] == "Critical":
                     st.error(f"🔴 Critical (Score {health_res['score']})")
-                else:
-                    st.info("No health data available")
+                    log_asset_event(t_id, "Alarm: Health Critical", f"Score {health_res['score']}")
 
                 # --- Analysis Results ---
                 st.write("### 🔬 Diagnostic Analysis")
@@ -423,18 +223,29 @@ else:
                         st.markdown(f"**{method}**")
                         if isinstance(result, dict):
                             st.table(pd.DataFrame(result.items(), columns=["Parameter", "Result"]))
+                            # Alarm logging if critical
+                            if "fault" in str(result).lower():
+                                log_asset_event(t_id, f"Alarm: {method}", str(result))
                         else:
                             st.info(str(result))
 
-                if st.button("📄 Export Transformer Report (PDF)"):
-                    buf = export_transformer_pdf(
-                        name=f"{t_row[0]}",
-                        df=df,
-                        duval_res=duval.analyze(df),
-                        rogers_res=rogers.analyze(df),
-                        keygas_res=keygas.analyze(df),
-                        trend_res=trend.analyze(df),
-                        duval_fig=fig_duval,
-                        trend_fig=fig_trend
-                    )
-                    st.download_button("Download Report", buf, file_name=f"{t_row[0]}_report.pdf")
+            # --- IoT Integration Coming Soon ---
+            st.markdown("---")
+            st.subheader("📡 IoT Integration (Coming Soon)")
+            st.info("Live transformer monitoring via MQTT and IoT sensors is under development. "
+                    "This feature will allow automatic data streaming into GridGuard for real-time analytics.")
+            st.checkbox("Enable IoT Streaming (coming soon)", value=False, disabled=True)
+
+            # --- Asset History ---
+            st.markdown("---")
+            st.subheader("📜 Asset History")
+            conn = sqlite3.connect(DB_PATH)
+            history_df = pd.read_sql_query(
+                "SELECT timestamp, event, details FROM asset_history WHERE transformer_id=? ORDER BY timestamp DESC",
+                conn, params=(t_id,)
+            )
+            conn.close()
+            if history_df.empty:
+                st.info("No history available yet for this asset.")
+            else:
+                st.dataframe(history_df, use_container_width=True, height=300)
