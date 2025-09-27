@@ -1,66 +1,299 @@
+import streamlit as st
 import sqlite3
-import bcrypt
+import pandas as pd
+import matplotlib.pyplot as plt
+import io
+import os
 
+from database import init_db
+from auth_utils import create_user, authenticate_user
+from analysis import duval, rogers, keygas, trend
+from utils import plot_gas_trends, plot_duval_triangle, export_transformer_pdf, export_fleet_pdf
+
+# -------------------------------
+# PAGE CONFIG + DEBUG MARKER
+# -------------------------------
+st.set_page_config(page_title="DGA Analysis App", layout="wide")
+st.write("🚀 App started successfully...")
+
+# -------------------------------
+# Database Initialization
+# -------------------------------
 DB_PATH = "dga_app.db"
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
+# Reset database if schema missing (safety net for blank screens)
+if not os.path.exists(DB_PATH):
+    st.warning("⚠️ Database not found. Creating a fresh one...")
+    init_db()
+else:
+    try:
+        # quick schema check
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = [r[0] for r in c.fetchall()]
+        conn.close()
+        if "sites" not in tables:
+            st.warning("⚠️ Old database schema detected. Resetting DB...")
+            os.remove(DB_PATH)
+            init_db()
+    except Exception as e:
+        st.error(f"❌ DB check failed: {e}")
+        os.remove(DB_PATH)
+        init_db()
 
-    # Users table
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE,
-            email TEXT,
-            name TEXT,
-            password TEXT,
-            company TEXT
-        )
-    """)
+# -------------------------------
+# Session State
+# -------------------------------
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.username = None
+    st.session_state.name = None
 
-    # Sites table
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS sites (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            name TEXT,
-            location TEXT
-        )
-    """)
+if "page" not in st.session_state:
+    st.session_state.page = "fleet"
 
-    # Transformers table (linked to sites)
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS transformers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            site_id INTEGER,
-            name TEXT,
-            location TEXT,
-            rating TEXT
-        )
-    """)
+if "active_site" not in st.session_state:
+    st.session_state.active_site = None
 
-    # DGA results table
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS dga_results (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            transformer_id INTEGER,
-            date TEXT,
-            H2 REAL, CH4 REAL, C2H2 REAL, C2H4 REAL, C2H6 REAL,
-            CO REAL, CO2 REAL
-        )
-    """)
+if "active_transformer" not in st.session_state:
+    st.session_state.active_transformer = None
 
-    conn.commit()
+# -------------------------------
+# LOGIN SCREEN
+# -------------------------------
+if not st.session_state.logged_in:
+    st.title("🔐 Login")
 
-    # Seed master user
-    c.execute("SELECT * FROM users WHERE username=?", ("master_user",))
-    if not c.fetchone():
-        hashed_pw = bcrypt.hashpw("master123".encode(), bcrypt.gensalt()).decode()
-        c.execute(
-            "INSERT INTO users (username, email, name, password, company) VALUES (?, ?, ?, ?, ?)",
-            ("master_user", "master@example.com", "Master Account", hashed_pw, "AdminCompany")
-        )
-        conn.commit()
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
 
-    conn.close()
+    if st.button("Login"):
+        name = authenticate_user(username, password)
+        if name:
+            st.session_state.logged_in = True
+            st.session_state.username = username
+            st.session_state.name = name
+            st.success(f"✅ Welcome {name}!")
+            st.rerun()
+        else:
+            st.error("❌ Invalid username or password")
+
+    st.markdown("---")
+    st.subheader("👤 Create New Account")
+    new_username = st.text_input("New Username")
+    new_email = st.text_input("New Email")
+    new_name = st.text_input("Full Name")
+    new_password = st.text_input("New Password", type="password")
+    company = st.text_input("Company", value="General")
+
+    if st.button("Create Account"):
+        if create_user(new_username, new_email, new_name, new_password, company):
+            st.success("✅ Account created! You can now log in.")
+        else:
+            st.error("❌ Username already exists")
+
+# -------------------------------
+# MAIN APP (after login)
+# -------------------------------
+else:
+    with st.sidebar:
+        st.success(f"Logged in as {st.session_state.name}")
+        if st.button("Logout"):
+            st.session_state.logged_in = False
+            st.session_state.username = None
+            st.session_state.name = None
+            st.session_state.page = "fleet"
+            st.session_state.active_site = None
+            st.session_state.active_transformer = None
+            st.rerun()
+
+        st.title("📋 Navigation")
+        if st.button("🏭 Fleet Dashboard"):
+            st.session_state.page = "fleet"
+            st.session_state.active_site = None
+            st.session_state.active_transformer = None
+            st.rerun()
+        if st.button("➕ Register Site"):
+            st.session_state.page = "register_site"
+            st.session_state.active_site = None
+            st.rerun()
+
+    # -------------------------------
+    # FLEET DASHBOARD (Sites)
+    # -------------------------------
+    if st.session_state.page == "fleet":
+        st.title("🏭 Fleet Dashboard")
+
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT id, name, location FROM sites WHERE user_id=(SELECT id FROM users WHERE username=?)",
+                  (st.session_state.username,))
+        sites = c.fetchall()
+        conn.close()
+
+        if not sites:
+            st.warning("No sites registered yet. Create one from sidebar ➕ Register Site")
+        else:
+            for s in sites:
+                col1, col2, col3 = st.columns([3, 3, 1])
+                with col1:
+                    st.write(f"**{s[1]}**")
+                    st.caption(f"{s[2]}")
+                with col2:
+                    st.write("Assets: click view")
+                with col3:
+                    if st.button("View ➡️", key=f"site_{s[0]}"):
+                        st.session_state.page = "site"
+                        st.session_state.active_site = s[0]
+                        st.rerun()
+
+    # -------------------------------
+    # REGISTER SITE
+    # -------------------------------
+    elif st.session_state.page == "register_site":
+        st.title("➕ Register New Site")
+
+        name_s = st.text_input("Site Name")
+        location = st.text_input("Location")
+
+        if st.button("Create Site"):
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
+            c.execute("SELECT id FROM users WHERE username=?", (st.session_state.username,))
+            user_id = c.fetchone()[0]
+            c.execute("INSERT INTO sites (user_id, name, location) VALUES (?,?,?)",
+                      (user_id, name_s, location))
+            conn.commit()
+            conn.close()
+            st.success("✅ Site registered!")
+            st.session_state.page = "fleet"
+            st.rerun()
+
+    # -------------------------------
+    # SITE PAGE (Transformers list)
+    # -------------------------------
+    elif st.session_state.page == "site" and st.session_state.active_site:
+        site_id = st.session_state.active_site
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT name, location FROM sites WHERE id=?", (site_id,))
+        site_row = c.fetchone()
+
+        c.execute("SELECT id, name, rating FROM transformers WHERE site_id=?", (site_id,))
+        transformers = c.fetchall()
+        conn.close()
+
+        if not site_row:
+            st.error("❌ Site not found")
+        else:
+            st.title(f"📍 {site_row[0]}")
+            st.caption(site_row[1])
+
+            if not transformers:
+                st.info("No transformers yet. Add one below.")
+            else:
+                for t in transformers:
+                    col1, col2, col3 = st.columns([3, 2, 1])
+                    with col1:
+                        st.write(f"**{t[1]}**")
+                        st.caption(f"{t[2]}")
+                    with col2:
+                        st.write("Latest data available")
+                    with col3:
+                        if st.button("View ➡️", key=f"tx_{t[0]}"):
+                            st.session_state.page = "asset"
+                            st.session_state.active_transformer = t[0]
+                            st.rerun()
+
+            st.markdown("---")
+            st.subheader("➕ Add Transformer")
+            name_t = st.text_input("Transformer Name")
+            rating_t = st.text_input("Rating (e.g. 33kV, 40MVA)")
+            if st.button("Add Transformer"):
+                conn = sqlite3.connect(DB_PATH)
+                c = conn.cursor()
+                c.execute("INSERT INTO transformers (site_id, name, rating) VALUES (?,?,?)",
+                          (site_id, name_t, rating_t))
+                conn.commit()
+                conn.close()
+                st.success("✅ Transformer added!")
+                st.rerun()
+
+    # -------------------------------
+    # ASSET PAGE (Transformer analysis)
+    # -------------------------------
+    elif st.session_state.page == "asset" and st.session_state.active_transformer:
+        t_id = st.session_state.active_transformer
+
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT name, rating FROM transformers WHERE id=?", (t_id,))
+        t_row = c.fetchone()
+        df = pd.read_sql_query("SELECT * FROM dga_results WHERE transformer_id=?", conn, params=(t_id,))
+        conn.close()
+
+        if not t_row:
+            st.error("❌ Transformer not found")
+        else:
+            st.title(f"⚡ {t_row[0]}")
+            st.caption(f"{t_row[1]}")
+
+            # Upload new DGA data
+            st.subheader("📤 Upload New DGA Data")
+            sample_csv = io.StringIO()
+            sample_csv.write("date,H2,CH4,C2H2,C2H4,C2H6,CO,CO2\n")
+            sample_csv.write("2024-01-01,120,35,2,18,50,350,3200\n")
+            st.download_button("📥 Download Sample CSV", sample_csv.getvalue(),
+                               file_name="sample_dga.csv", mime="text/csv")
+
+            file = st.file_uploader("Upload File", type=["csv", "xlsx"])
+            if file:
+                df_new = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
+                required_cols = ["date", "H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2"]
+                if not all(col in df_new.columns for col in required_cols):
+                    st.error(f"❌ Invalid file format. Required: {', '.join(required_cols)}")
+                else:
+                    if st.button("Save Data"):
+                        conn = sqlite3.connect(DB_PATH)
+                        df_new["transformer_id"] = t_id
+                        df_new.to_sql("dga_results", conn, if_exists="append", index=False)
+                        conn.close()
+                        st.success("✅ Data uploaded!")
+                        st.rerun()
+
+            # Show analysis if data exists
+            if not df.empty:
+                df["date"] = pd.to_datetime(df["date"], errors="coerce")
+                st.subheader("📊 Latest Data")
+                st.dataframe(df.tail())
+
+                st.write("### Gas Trends")
+                fig_trend = plot_gas_trends(df)
+                st.pyplot(fig_trend)
+
+                st.write("### Duval Triangle")
+                fig_duval = plot_duval_triangle(df, date_col="date")
+                if fig_duval:
+                    st.plotly_chart(fig_duval, use_container_width=True)
+
+                st.write("### Analysis Results")
+                st.json({
+                    "Duval": duval.analyze(df),
+                    "Rogers": rogers.analyze(df),
+                    "Key Gas": keygas.analyze(df),
+                    "Trend": trend.analyze(df),
+                })
+
+                if st.button("📄 Export Transformer Report (PDF)"):
+                    buf = export_transformer_pdf(
+                        name=f"{t_row[0]}",
+                        df=df,
+                        duval_res=duval.analyze(df),
+                        rogers_res=rogers.analyze(df),
+                        keygas_res=keygas.analyze(df),
+                        trend_res=trend.analyze(df),
+                        duval_fig=fig_duval,
+                        trend_fig=fig_trend
+                    )
+                    st.download_button("Download Report", buf, file_name=f"{t_row[0]}_report.pdf")
