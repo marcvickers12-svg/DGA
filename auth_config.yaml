@@ -1,6 +1,6 @@
 credentials:
   usernames:
-    master_user:Marc
+    master_user: marc
       email: master@example.com
       name: Master Account
       password: "$2b$12$6fvhz8Cy2zXwz.NCM5VX6Og4qjMY0NxxJzUgKcDsbE2tK4CIsgVbq"
