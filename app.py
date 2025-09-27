@@ -1,90 +1,98 @@
-import matplotlib.pyplot as plt
-import pandas as pd
-import plotly.express as px
+import streamlit as st
 import sqlite3
+import pandas as pd
+import matplotlib.pyplot as plt
 import io
-from fpdf import FPDF   # from fpdf2
-from datetime import datetime
+import os
 
-from analysis import duval, rogers, keygas, trend
+from database import init_db
+from auth_utils import create_user, authenticate_user
+from analysis import duval, rogers, keygas, trend, health
+from utils import (
+    plot_gas_trends,
+    plot_duval_triangle,
+    export_transformer_pdf,
+    export_fleet_pdf,
+    log_asset_event
+)
 
-# -------------------------------
-# Plot Gas Trends
-# -------------------------------
-def plot_gas_trends(df, date_col="date"):
-    if df.empty:
-        return None
-    fig = px.line(
-        df,
-        x=date_col,
-        y=["H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2"],
-        title="Gas Trends Over Time"
-    )
-    return fig
+# --------------------------------------------------
+# Initialize DB
+init_db()
 
-# -------------------------------
-# Duval Triangle (Plotly)
-# -------------------------------
-def plot_duval_triangle(df, date_col="date"):
-    if df.empty:
-        return None
-    latest = df.iloc[-1]
-    fig = px.scatter_ternary(
-        latest.to_frame().T,
-        a="CH4", b="C2H2", c="C2H4",
-        hover_name=date_col,
-        title="Duval Triangle"
-    )
-    return fig
+# --------------------------------------------------
+# Session state setup
+if "page" not in st.session_state:
+    st.session_state.page = "login"
 
-# -------------------------------
-# Export Transformer Report (PDF)
-# -------------------------------
-def export_transformer_pdf(transformer_name, df, analyses, health_res):
-    buffer = io.BytesIO()
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
+if "active_site" not in st.session_state:
+    st.session_state.active_site = None
 
-    pdf.cell(200, 10, txt=f"Transformer Report: {transformer_name}", ln=True, align="C")
+if "active_transformer" not in st.session_state:
+    st.session_state.active_transformer = None
 
-    # Health
-    pdf.cell(200, 10, txt=f"Health Status: {health_res['status']} (Score {health_res['score']})", ln=True)
+# --------------------------------------------------
+# Login page
+def login_page():
+    st.title("🔐 Login")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+    if st.button("Login"):
+        user = authenticate_user(username, password)
+        if user:
+            st.session_state.page = "dashboard"
+            st.success(f"Welcome {username}!")
+        else:
+            st.error("Invalid username or password")
 
-    # Analyses
-    pdf.cell(200, 10, txt="Analyses:", ln=True)
-    for k, v in analyses.items():
-        pdf.cell(200, 10, txt=f"{k}: {str(v)}", ln=True)
+# --------------------------------------------------
+# Dashboard
+def dashboard_page():
+    st.sidebar.success("Logged in")
+    menu = ["Fleet Dashboard", "Sites", "Logout"]
+    choice = st.sidebar.radio("Menu", menu)
 
-    pdf.output(buffer)
-    buffer.seek(0)
-    return buffer
+    if choice == "Fleet Dashboard":
+        st.header("📊 Fleet Dashboard")
+        st.info("No transformers registered yet.")
 
-# -------------------------------
-# Export Fleet Report (PDF)
-# -------------------------------
-def export_fleet_pdf(username, fleet_summary):
-    buffer = io.BytesIO()
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
+    elif choice == "Sites":
+        sites_page()
 
-    pdf.cell(200, 10, txt=f"Fleet Report for {username}", ln=True, align="C")
-    pdf.cell(200, 10, txt=str(fleet_summary), ln=True)
+    elif choice == "Logout":
+        st.session_state.page = "login"
 
-    pdf.output(buffer)
-    buffer.seek(0)
-    return buffer
+# --------------------------------------------------
+# Sites page
+def sites_page():
+    st.header("🏭 Sites")
+    st.write("Here you can manage sites and assets (transformers).")
 
-# -------------------------------
-# Asset History Logging
-# -------------------------------
-def log_asset_event(transformer_id, event, details):
-    conn = sqlite3.connect("dga_app.db")
-    c = conn.cursor()
-    c.execute(
-        "INSERT INTO asset_history (transformer_id, event, details) VALUES (?, ?, ?)",
-        (transformer_id, event, details)
-    )
-    conn.commit()
-    conn.close()
+    if st.button("➕ Create Site"):
+        st.session_state.page = "create_site"
+
+# --------------------------------------------------
+# Create site page
+def create_site_page():
+    st.header("➕ Create Site")
+    site_name = st.text_input("Site Name")
+    site_location = st.text_input("Location")
+
+    if st.button("Save Site"):
+        if site_name:
+            st.success(f"✅ Site '{site_name}' created!")
+            st.session_state.page = "dashboard"
+        else:
+            st.error("Please enter a site name")
+
+    if st.button("⬅️ Back"):
+        st.session_state.page = "sites"
+
+# --------------------------------------------------
+# Router
+if st.session_state.page == "login":
+    login_page()
+elif st.session_state.page == "dashboard":
+    dashboard_page()
+elif st.session_state.page == "create_site":
+    create_site_page()
