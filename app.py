@@ -38,14 +38,29 @@ else:
     username = None
     auth_status = None
 
+# -------------------------------
+# Login feedback
+# -------------------------------
 if auth_status is False:
-    st.error("Username/password is incorrect")
-elif auth_status is None:
-    st.warning("Please enter your username and password")
-elif auth_status:
+    st.error("❌ Login failed! Please check your username and password.")
+    st.markdown(
+        """
+        <div style='padding:10px; border:2px solid red; border-radius:10px; background-color:#ffe6e6;'>
+            <b>Authentication failed:</b><br>
+            - Double-check your username<br>
+            - Make sure CAPS LOCK is off<br>
+            - Try again or reset your password
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
+elif auth_status is None:
+    st.info("ℹ️ Please enter your username and password to log in.")
+
+elif auth_status:
     authenticator.logout("Logout", location="sidebar")
-    st.sidebar.success(f"Welcome {name} 👋")
+    st.sidebar.success(f"✅ Welcome {name} 👋")
 
     # -------------------------------
     # Main App Menu
@@ -186,4 +201,3 @@ elif auth_status:
             if st.button("📄 Export Fleet Report (PDF)"):
                 buf = export_fleet_pdf(df_fleet, diag_counts, pd.DataFrame(), fig, fig)
                 st.download_button("Download Fleet Report", buf, file_name="fleet_report.pdf")
-
