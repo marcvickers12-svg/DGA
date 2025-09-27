@@ -103,7 +103,7 @@ elif auth_status:
             st.write("### Duval Triangle")
             fig_duval = plot_duval_triangle(df, date_col="date")
             if fig_duval:
-                st.pyplot(fig_duval)
+                st.plotly_chart(fig_duval, use_container_width=True)
 
             st.write("### Duval Analysis")
             duval_res = duval.analyze(df)
@@ -176,6 +176,5 @@ elif auth_status:
             # PDF export fleet
             if st.button("📄 Export Fleet Report (PDF)"):
                 from utils import export_fleet_pdf
-                # For simplicity, reuse pie chart for fleet PDF
                 buf = export_fleet_pdf(df_fleet, diag_counts, pd.DataFrame(), fig, fig)
                 st.download_button("Download Fleet Report", buf, file_name="fleet_report.pdf")
