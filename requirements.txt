@@ -1,7 +1,22 @@
+# Core framework
 streamlit==1.50.0
-bcrypt
-pandas
-matplotlib
-plotly
-fpdf2
-openpyxl
+
+# Database
+sqlite3-binary  # for DB ops
+
+# Authentication
+bcrypt==4.2.0
+
+# Data manipulation
+pandas==2.2.3
+numpy==2.1.1
+
+# Visualization
+matplotlib==3.9.2
+plotly==5.24.0
+
+# PDF export
+fpdf==1.7.2
+
+# Utilities
+python-dateutil==2.9.0.post0
