@@ -19,7 +19,7 @@ init_db()
 with open("auth_config.yaml") as f:
     config = yaml.load(f, Loader=SafeLoader)
 
-# ✅ Updated: removed "preauthorized"
+# ✅ Updated: removed deprecated "preauthorized"
 authenticator = stauth.Authenticate(
     config["credentials"],
     config["cookie"]["name"],
@@ -27,7 +27,8 @@ authenticator = stauth.Authenticate(
     config["cookie"]["expiry_days"]
 )
 
-name, auth_status, username = authenticator.login("Login", "main")
+# ✅ Updated: use keyword for location
+name, auth_status, username = authenticator.login("Login", location="main")
 
 if auth_status == False:
     st.error("Username/password is incorrect")
@@ -35,7 +36,7 @@ elif auth_status == None:
     st.warning("Please enter your username and password")
 elif auth_status:
 
-    authenticator.logout("Logout", "sidebar")
+    authenticator.logout("Logout", location="sidebar")
     st.sidebar.success(f"Welcome {name} 👋")
 
     # -------------------------------
@@ -177,4 +178,3 @@ elif auth_status:
             if st.button("📄 Export Fleet Report (PDF)"):
                 buf = export_fleet_pdf(df_fleet, diag_counts, pd.DataFrame(), fig, fig)
                 st.download_button("Download Fleet Report", buf, file_name="fleet_report.pdf")
-
