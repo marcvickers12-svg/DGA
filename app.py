@@ -11,10 +11,11 @@ from analysis import duval, rogers, keygas, trend
 from utils import plot_gas_trends, plot_duval_triangle, export_transformer_pdf, export_fleet_pdf
 
 # -------------------------------
-# PAGE CONFIG + DEBUG MARKER
+# PAGE CONFIG + BRANDING
 # -------------------------------
-st.set_page_config(page_title="DGA Analysis App", layout="wide")
-st.write("🚀 App started successfully...")
+st.set_page_config(page_title="GridGuard – Transformer DGA & Fleet Monitoring", layout="wide")
+st.markdown("<h1 style='text-align: center; color: #2E86C1;'>⚡ GridGuard</h1>", unsafe_allow_html=True)
+st.caption("Advanced Transformer DGA Analysis & Fleet Health Monitoring")
 
 # -------------------------------
 # Database Initialization
@@ -58,10 +59,31 @@ if "active_transformer" not in st.session_state:
     st.session_state.active_transformer = None
 
 # -------------------------------
+# Helper: Breadcrumbs
+# -------------------------------
+def render_breadcrumbs():
+    parts = ["🏭 Fleet"]
+    if st.session_state.page in ["site", "asset"] and st.session_state.active_site:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT name FROM sites WHERE id=?", (st.session_state.active_site,))
+        site_name = c.fetchone()[0]
+        conn.close()
+        parts.append(f"📍 {site_name}")
+    if st.session_state.page == "asset" and st.session_state.active_transformer:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT name FROM transformers WHERE id=?", (st.session_state.active_transformer,))
+        tx_name = c.fetchone()[0]
+        conn.close()
+        parts.append(f"⚡ {tx_name}")
+    st.markdown(" ➡️ ".join(parts))
+
+# -------------------------------
 # LOGIN SCREEN
 # -------------------------------
 if not st.session_state.logged_in:
-    st.title("🔐 Login")
+    st.subheader("🔐 Login to GridGuard")
 
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
@@ -96,6 +118,9 @@ if not st.session_state.logged_in:
 # -------------------------------
 else:
     with st.sidebar:
+        st.markdown("## ⚡ GridGuard")
+        st.caption("Fleet Transformer Monitoring")
+
         st.success(f"Logged in as {st.session_state.name}")
         if st.button("Logout"):
             st.session_state.logged_in = False
@@ -121,6 +146,7 @@ else:
     # FLEET DASHBOARD (Sites)
     # -------------------------------
     if st.session_state.page == "fleet":
+        render_breadcrumbs()
         st.title("🏭 Fleet Dashboard")
 
         conn = sqlite3.connect(DB_PATH)
@@ -150,6 +176,7 @@ else:
     # REGISTER SITE
     # -------------------------------
     elif st.session_state.page == "register_site":
+        render_breadcrumbs()
         st.title("➕ Register New Site")
 
         name_s = st.text_input("Site Name")
@@ -172,6 +199,7 @@ else:
     # SITE PAGE (Transformers list)
     # -------------------------------
     elif st.session_state.page == "site" and st.session_state.active_site:
+        render_breadcrumbs()
         site_id = st.session_state.active_site
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
@@ -185,6 +213,11 @@ else:
         if not site_row:
             st.error("❌ Site not found")
         else:
+            if st.button("⬅️ Back to Fleet Dashboard"):
+                st.session_state.page = "fleet"
+                st.session_state.active_site = None
+                st.rerun()
+
             st.title(f"📍 {site_row[0]}")
             st.caption(site_row[1])
 
@@ -222,11 +255,12 @@ else:
     # ASSET PAGE (Transformer analysis)
     # -------------------------------
     elif st.session_state.page == "asset" and st.session_state.active_transformer:
+        render_breadcrumbs()
         t_id = st.session_state.active_transformer
 
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        c.execute("SELECT name, rating FROM transformers WHERE id=?", (t_id,))
+        c.execute("SELECT name, rating, site_id FROM transformers WHERE id=?", (t_id,))
         t_row = c.fetchone()
         df = pd.read_sql_query("SELECT * FROM dga_results WHERE transformer_id=?", conn, params=(t_id,))
         conn.close()
@@ -234,6 +268,12 @@ else:
         if not t_row:
             st.error("❌ Transformer not found")
         else:
+            if st.button("⬅️ Back to Site"):
+                st.session_state.page = "site"
+                st.session_state.active_transformer = None
+                st.session_state.active_site = t_row[2]  # site_id
+                st.rerun()
+
             st.title(f"⚡ {t_row[0]}")
             st.caption(f"{t_row[1]}")
 
