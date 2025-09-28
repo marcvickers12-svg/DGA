@@ -1,56 +1,39 @@
+import plotly.express as px
 import sqlite3
-import bcrypt
-from database import DB_FILE
+from fpdf import FPDF
+from datetime import datetime
 
-# ----------------------------------------------------
-# Create a new user
-# ----------------------------------------------------
-def create_user(username, password):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    hashed_pw = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
-    try:
-        c.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hashed_pw))
-        conn.commit()
-        return True
-    except sqlite3.IntegrityError:
-        return False  # Username already exists
-    finally:
-        conn.close()
+DB_FILE = "dga_app.db"
 
-# ----------------------------------------------------
-# Authenticate user (login)
-# ----------------------------------------------------
-def authenticate_user(username, password):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT password FROM users WHERE username = ?", (username,))
-    result = c.fetchone()
-    conn.close()
+def plot_gas_trends(df, date_col="date"):
+    fig = px.line(df, x=date_col, y=df.columns.drop(date_col), title="Gas Trends")
+    return fig
 
-    if result:
-        stored_password = result[0]
-        return bcrypt.checkpw(password.encode(), stored_password)
-    return False
+def plot_duval_triangle(df, date_col="date"):
+    fig = px.scatter_ternary(df,
+        a="CH4", b="C2H4", c="C2H2",
+        color=date_col,
+        title="Duval Triangle"
+    )
+    return fig
 
-# ----------------------------------------------------
-# List all users
-# ----------------------------------------------------
-def list_users():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT id, username FROM users")
-    users = c.fetchall()
-    conn.close()
-    return users
+def export_transformer_pdf(transformer_id):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    pdf.cell(200, 10, txt=f"Transformer Report {transformer_id}", ln=True)
+    filename = f"transformer_{transformer_id}_report.pdf"
+    pdf.output(filename)
+    return filename
 
-# ----------------------------------------------------
-# Delete user by ID
-# ----------------------------------------------------
-def delete_user(user_id):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("DELETE FROM users WHERE id = ?", (user_id,))
-    conn.commit()
-    conn.close()
-    return True
+def export_fleet_pdf():
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    pdf.cell(200, 10, txt="Fleet Report", ln=True)
+    filename = "fleet_report.pdf"
+    pdf.output(filename)
+    return filename
+
+def log_asset_event(asset_id, message):
+    print(f"[{datetime.now()}] Asset {asset_id}: {message}")
