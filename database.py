@@ -1,84 +1,50 @@
-import sqlite3
-
-DB_FILE = "dga_app.db"
-
-# ----------------------------------------------------
-# Initialize database (create tables if not exist)
-# ----------------------------------------------------
 def init_db():
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect("dga_app.db")
     c = conn.cursor()
 
     # Users table
-    c.execute("""
+    c.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
-            password BLOB NOT NULL
+            password TEXT NOT NULL
         )
-    """)
+    ''')
 
     # Sites table
-    c.execute("""
+    c.execute('''
         CREATE TABLE IF NOT EXISTS sites (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            location TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            name TEXT NOT NULL
         )
-    """)
+    ''')
 
-    # Assets table (linked to sites)
-    c.execute("""
+    # Assets table
+    c.execute('''
         CREATE TABLE IF NOT EXISTS assets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            site_id INTEGER NOT NULL,
+            site_id INTEGER,
             name TEXT NOT NULL,
             type TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE
+            FOREIGN KEY (site_id) REFERENCES sites (id)
         )
-    """)
+    ''')
 
-    # DGA results table (linked to assets)
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS dga_results (
+    # Readings table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS readings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            asset_id INTEGER NOT NULL,
-            date TEXT NOT NULL,
-            h2 REAL,
-            ch4 REAL,
-            c2h2 REAL,
-            c2h4 REAL,
-            c2h6 REAL,
-            co REAL,
-            co2 REAL,
-            o2 REAL,
-            n2 REAL,
-            tdcg REAL,
-            FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE
+            asset_id INTEGER,
+            date TEXT,
+            h2 REAL, ch4 REAL, c2h2 REAL, c2h4 REAL, c2h6 REAL, co REAL, co2 REAL,
+            FOREIGN KEY (asset_id) REFERENCES assets (id)
         )
-    """)
+    ''')
+
+    # Insert default admin user if not exists
+    c.execute("SELECT * FROM users WHERE username = ?", ("admin",))
+    if not c.fetchone():
+        c.execute("INSERT INTO users (username, password) VALUES (?, ?)", ("admin", "admin123"))
 
     conn.commit()
     conn.close()
-
-# ----------------------------------------------------
-# Utility function for running queries
-# ----------------------------------------------------
-def query_db(query, params=(), fetchone=False, fetchall=False, commit=False):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute(query, params)
-
-    data = None
-    if fetchone:
-        data = c.fetchone()
-    elif fetchall:
-        data = c.fetchall()
-
-    if commit:
-        conn.commit()
-
-    conn.close()
-    return data
