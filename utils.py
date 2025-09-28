@@ -1,39 +1,49 @@
-import plotly.express as px
 import sqlite3
-from fpdf import FPDF
-from datetime import datetime
+import bcrypt
 
-DB_FILE = "dga_app.db"
+DB_PATH = "dga_app.db"
 
-def plot_gas_trends(df, date_col="date"):
-    fig = px.line(df, x=date_col, y=df.columns.drop(date_col), title="Gas Trends")
-    return fig
+# -------------------------
+# Create User
+# -------------------------
+def create_user(username, password):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    hashed_pw = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+    c.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hashed_pw))
+    conn.commit()
+    conn.close()
 
-def plot_duval_triangle(df, date_col="date"):
-    fig = px.scatter_ternary(df,
-        a="CH4", b="C2H4", c="C2H2",
-        color=date_col,
-        title="Duval Triangle"
-    )
-    return fig
+# -------------------------
+# Authenticate User
+# -------------------------
+def authenticate_user(username, password):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT password FROM users WHERE username=?", (username,))
+    row = c.fetchone()
+    conn.close()
+    if row and bcrypt.checkpw(password.encode(), row[0]):
+        return True
+    return False
 
-def export_transformer_pdf(transformer_id):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(200, 10, txt=f"Transformer Report {transformer_id}", ln=True)
-    filename = f"transformer_{transformer_id}_report.pdf"
-    pdf.output(filename)
-    return filename
+# -------------------------
+# List Users
+# -------------------------
+def list_users():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT username FROM users")
+    users = [row[0] for row in c.fetchall()]
+    conn.close()
+    return users
 
-def export_fleet_pdf():
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(200, 10, txt="Fleet Report", ln=True)
-    filename = "fleet_report.pdf"
-    pdf.output(filename)
-    return filename
-
-def log_asset_event(asset_id, message):
-    print(f"[{datetime.now()}] Asset {asset_id}: {message}")
+# -------------------------
+# Delete User
+# -------------------------
+def delete_user(username):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("DELETE FROM users WHERE username=?", (username,))
+    conn.commit()
+    conn.close()
